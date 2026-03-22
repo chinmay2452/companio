@@ -1,10 +1,14 @@
 import { useState, useEffect } from "react";
-import { generateQuestions, submitAnswer, getWeakAreas, DEMO_USER } from "../lib/api";
+import { generateQuestions, submitAnswer, getWeakAreas } from "../lib/api";
+import useAppStore from "../store/useAppStore";
 
 const SUBJECTS = ["Physics", "Chemistry", "Biology", "Maths", "History", "Polity"];
 const DIFFICULTIES = ["Easy", "Medium", "Hard"];
 
 export default function Practice() {
+  const user = useAppStore(s => s.user);
+  const userId = user?.id;
+
   const [subject,    setSubject]    = useState("Physics");
   const [topic,      setTopic]      = useState("");
   const [difficulty, setDifficulty] = useState("Medium");
@@ -23,7 +27,7 @@ export default function Practice() {
   useEffect(() => {
     (async () => {
       try {
-        const res = await getWeakAreas(DEMO_USER);
+        const res = await getWeakAreas(userId);
         if (res.data?.weak_areas) setWeakTopics(res.data.weak_areas.slice(0, 5));
       } catch { /* analytics not ready yet */ }
     })();
@@ -70,7 +74,7 @@ export default function Practice() {
     setStats(newStats);
     if (!correct && newStats.wrong >= 2) setWeakFlag(true);
     try {
-      const res = await submitAnswer(DEMO_USER, q.id, q.question, opt, q.answer, timeSec, subject, topic);
+      const res = await submitAnswer(userId, q.id, q.question, opt, q.answer, timeSec, subject, topic);
       if (res.data?.flashcard_generated) {
         setGeneratedCard(res.data.flashcard_generated);
       }

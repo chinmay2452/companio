@@ -1,5 +1,6 @@
 import { useState } from "react";
 import useAppStore from "../store/useAppStore";
+import { supabase } from "../lib/supabaseClient";
 
 const EXAMS = [
   { id: "JEE",  icon: "📐", label: "JEE Main/Advanced", desc: "Engineering" },
@@ -10,11 +11,12 @@ const EXAMS = [
 export default function Onboarding({ onComplete }) {
   const [name, setName] = useState("");
   const [exam, setExam] = useState("");
+  const session = useAppStore((s) => s.session);
   const setUser = useAppStore((s) => s.setUser);
   const setExamTypeStore = useAppStore((s) => s.setExamType);
   const [error, setError] = useState("");
 
-  const handleStart = () => {
+  const handleStart = async () => {
     if (!name.trim()) {
       setError("Please enter your name.");
       return;
@@ -24,9 +26,20 @@ export default function Onboarding({ onComplete }) {
       return;
     }
 
-    // Update global store
+    const userId = session?.user?.id;
+
+    // Save name + exam to Supabase user metadata
+    try {
+      await supabase.auth.updateUser({
+        data: { name: name.trim(), exam_type: exam },
+      });
+    } catch (e) {
+      console.error("Failed to update user metadata:", e);
+    }
+
+    // Update global store with real user ID
     setUser({
-      id: "demo-user-001", // Demo ID for hackathon
+      id: userId,
       name: name.trim(),
       exam_type: exam,
       exam_date: null,
