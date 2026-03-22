@@ -123,3 +123,41 @@ def query_context(
     )
     # results["documents"] is a list of lists; flatten the first query
     return results["documents"][0] if results["documents"] else []
+
+
+def generate_mcq(topic: str, difficulty: str = "medium") -> dict:
+    """Generate a single MCQ on the given topic using the FAST_MODEL.
+
+    Returns a dict with keys: question, options, correct_index.
+    """
+    import json
+    import re
+
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "You are a JEE/NEET question paper setter. "
+                "Generate exactly 1 MCQ. Return ONLY valid JSON with keys: "
+                "question (str), options (array of 4 strings), correct_index (int 0-3). "
+                "No markdown, no explanation."
+            ),
+        },
+        {
+            "role": "user",
+            "content": f"Generate 1 {difficulty}-level MCQ on '{topic}'.",
+        },
+    ]
+
+    try:
+        raw = chat(messages, model=FAST_MODEL, max_tokens=512)
+        raw = raw.strip()
+        raw = re.sub(r"^```(?:json)?\s*\n?", "", raw)
+        raw = re.sub(r"\n?```\s*$", "", raw)
+        return json.loads(raw.strip())
+    except Exception:
+        return {
+            "question": f"What is a key concept in {topic}?",
+            "options": ["Option A", "Option B", "Option C", "Option D"],
+            "correct_index": 0,
+        }

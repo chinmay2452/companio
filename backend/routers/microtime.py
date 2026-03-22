@@ -13,7 +13,7 @@ from services.supabase_service import (
 )
 from services.ai_service import generate_mcq
 
-router = APIRouter(prefix="/api/microtime", tags=["microtime"])
+router = APIRouter(tags=["microtime"])
 
 class StartSessionRequest(BaseModel):
     user_id: str

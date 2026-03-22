@@ -6,6 +6,10 @@ Main application entry point with CORS middleware and router registration.
 All six feature modules are mounted under /api/*.
 """
 
+import os
+from dotenv import load_dotenv
+load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 

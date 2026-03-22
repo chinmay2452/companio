@@ -244,7 +244,17 @@ def seed():
         })
         
     supabase.table("micro_sessions").insert(sessions_data).execute()
-    print("✓ 3 Micro sessions inserted (active 3-day streak triggered!)")
+    
+    # Explicitly enforce the streak in case the DB trigger is missing
+    supabase.table("micro_streaks").upsert({
+        "user_id": user_id,
+        "current_streak": 3,
+        "longest_streak": 3,
+        "total_sessions": 3,
+        "total_minutes": 15
+    }).execute()
+    
+    print("✓ 3 Micro sessions inserted (active 3-day streak active!)")
     
     print("\n---------------------------------------------------------")
     print("🎉 SEEDING COMPLETE! You can now test the frontend securely.")

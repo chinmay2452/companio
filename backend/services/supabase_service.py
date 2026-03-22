@@ -1,11 +1,17 @@
 import os
 from datetime import date, timedelta
+from dotenv import load_dotenv
+load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), '.env'))
 from supabase import create_client, Client
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
 SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+
+def get_supabase() -> Client:
+    """Return the module-level Supabase client instance."""
+    return supabase
 
 def fetch_due_cards(user_id: str, limit: int = 20) -> list[dict]:
     try:
