@@ -206,6 +206,54 @@ def generate_formula(topic: str, subject: str) -> dict:
             "explanation": f"Make sure to review {topic} thoroughly.",
         }
 
+def generate_microtime_equations(subject: str, topic: str, count: int = 5) -> list[dict]:
+    """Generate key formulas and concepts for quick 'microtime' revision sheet.
+    
+    Returns a list of dicts with keys: concept, formula, explanation.
+    """
+    import json
+    import re
+
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "You are an expert tutor creating a highly condensed, high-yield 'Microtime' revision sheet. "
+                f"Generate exactly {count} crucial concepts, formulas, or key points for the given subject and topic. "
+                "Return ONLY valid JSON as an array of objects. Each object must have keys: "
+                "'concept' (short title), 'formula' (the formula, equation, or empty string if not applicable), "
+                "and 'explanation' (1-2 sentences of brief, clear explanation). "
+                "No markdown outside JSON. Only return the JSON array."
+            ),
+        },
+        {
+            "role": "user",
+            "content": f"Generate {count} key items to memorize for {subject} - {topic}.",
+        },
+    ]
+
+    try:
+        raw = chat(messages, model=FAST_MODEL, max_tokens=1024)
+        raw = raw.strip()
+        raw = re.sub(r"^```(?:json)?\s*\n?", "", raw)
+        raw = re.sub(r"\n?```\s*$", "", raw)
+        data = json.loads(raw.strip())
+        if isinstance(data, dict) and "equations" in data:
+            return data["equations"]
+        if isinstance(data, list):
+            return data
+        return []
+    except Exception as e:
+        print(f"Error in generate_microtime_equations: {e}")
+        return [
+            {
+                "concept": f"Important concept in {topic}",
+                "formula": "E = mc^2",
+                "explanation": "Remember the key principles."
+            }
+        ]
+
+
 
 def extract_concept(
     question: str,

@@ -26,7 +26,7 @@ const glass = (extra = {}) => ({
   ...extra,
 });
 
-const SCREENS = { PICKER: 1, ACTIVE: 2, RESULTS: 3, LOADING: 4 };
+const SCREENS = { PICKER: 1, ACTIVE: 2, RESULTS: 3, LOADING: 4, EQUATIONS: 5 };
 
 /* ── Duration options ───────────────────────────────────────────── */
 const DURATIONS = [
@@ -105,6 +105,8 @@ export default function MicroTimeMode() {
   const [mcqAnswered,      setMcqAnswered]      = useState(null);
   const [finalStats,       setFinalStats]       = useState(null);
   const [sessionsToday,    setSessionsToday]    = useState(2);
+  const [studyMode,        setStudyMode]        = useState('quiz'); // 'quiz' or 'equations'
+  const [generatedEquations, setGeneratedEquations] = useState([]);
   const timerRef = useRef(null);
 
   const stopTimer = () => { if (timerRef.current) clearInterval(timerRef.current); };
@@ -134,6 +136,23 @@ export default function MicroTimeMode() {
     } catch (err) {
       console.error(err);
       alert(isOnline ? 'Error starting session. Please try again.' : 'Network error. Try again when online.');
+      setScreen(SCREENS.PICKER);
+    }
+  };
+
+  const startEquations = async () => {
+    setScreen(SCREENS.LOADING);
+    try {
+      const res = await api.post('/api/microtime/generate_equations', {
+        subject: subject === 'All' ? 'General' : subject,
+        topic: topic === 'All' ? 'Key Concepts' : topic,
+        count: 6
+      });
+      setGeneratedEquations(res.data.equations || []);
+      setScreen(SCREENS.EQUATIONS);
+    } catch (err) {
+      console.error(err);
+      alert('Failed to generate equations. Try again.');
       setScreen(SCREENS.PICKER);
     }
   };
@@ -376,6 +395,55 @@ export default function MicroTimeMode() {
     );
   }
 
+  /* ── SCREEN: EQUATIONS CHEAT SHEET ───────────────────────────── */
+  if (screen === SCREENS.EQUATIONS) {
+    return (
+      <>
+        <style>{`@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@700;800&family=Inter:wght@400;500;600&display=swap');@keyframes fade-in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}`}</style>
+        <div style={{ maxWidth: 640, margin: "0 auto", padding: "18px 20px", fontFamily: "Inter,sans-serif", color: C.textPrimary }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24 }}>
+            <div>
+              <h1 style={{ fontSize: 24, fontWeight: 800, letterSpacing: -0.5, fontFamily: "Manrope,sans-serif", margin: 0, color: C.primary }}>
+                📝 Quick Notes
+              </h1>
+              <p style={{ color: C.textMuted, fontSize: 13, margin: "4px 0 0" }}>
+                High-yield concepts for {subject} {topic !== 'All' ? `— ${topic}` : ''}
+              </p>
+            </div>
+            <button onClick={() => setScreen(SCREENS.PICKER)} style={{ background: C.surfaceTop, border: `1px solid ${C.outline}33`, borderRadius: 8, padding: "8px 14px", fontSize: 13, color: C.textMuted, cursor: "pointer" }}>
+              ← Back
+            </button>
+          </div>
+
+          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            {generatedEquations.map((eq, idx) => (
+              <div key={idx} style={{ ...glass({ padding: "20px" }), animation: `fade-in 0.4s ease ${idx * 0.1}s backwards` }}>
+                <div style={{ fontSize: 11, color: C.tertiary, background: `${C.tertiary}14`, border: `1px solid ${C.tertiary}33`, padding: "3px 10px", borderRadius: 6, marginBottom: 14, fontWeight: 700, display: "inline-block" }}>
+                  Concept #{idx + 1}
+                </div>
+                <h3 style={{ fontSize: 16, fontWeight: 700, margin: "0 0 12px", color: C.textPrimary }}>
+                  {eq.concept}
+                </h3>
+                {eq.formula && (
+                  <div style={{ background: `linear-gradient(135deg, ${C.bg}, ${C.surface})`, borderRadius: 8, padding: "16px", fontFamily: "monospace", fontSize: 18, color: C.secondary, letterSpacing: 1, marginBottom: 14, border: `1px solid ${C.outline}22`, textAlign: "center", boxShadow: "inset 0 4px 10px rgba(0,0,0,0.2)" }}>
+                    {eq.formula}
+                  </div>
+                )}
+                <p style={{ fontSize: 13, color: C.textMuted, lineHeight: 1.6, margin: 0 }}>
+                  {eq.explanation}
+                </p>
+              </div>
+            ))}
+          </div>
+          
+          <button onClick={() => setScreen(SCREENS.PICKER)} style={{ width: "100%", marginTop: 24, background: `linear-gradient(135deg,${C.primary},${C.primaryDim})`, color: "#fff", border: "none", borderRadius: 12, padding: "14px", fontSize: 14, fontWeight: 800, cursor: "pointer", fontFamily: "Manrope,sans-serif", boxShadow: `0 4px 20px ${C.primary}44` }}>
+            ✓ Finish Review
+          </button>
+        </div>
+      </>
+    );
+  }
+
   /* ── SCREEN: PICKER ──────────────────────────────────────────── */
   return (
     <>
@@ -401,6 +469,26 @@ export default function MicroTimeMode() {
               <div style={{ fontSize: 10, color: C.textMuted }}>Keep it going</div>
             </div>
           </div>
+        </div>
+
+        {/* Mode Selector */}
+        <div style={{ display: "flex", background: C.surfaceTop, borderRadius: 12, padding: 4, marginBottom: 20 }}>
+          <button onClick={() => setStudyMode('quiz')}
+            style={{ flex: 1, padding: "10px", borderRadius: 9, border: "none", cursor: "pointer", fontSize: 13, fontWeight: 700, transition: "all 0.2s",
+              background: studyMode === 'quiz' ? `linear-gradient(135deg,${C.primary},${C.primaryDim})` : "transparent",
+              color: studyMode === 'quiz' ? "#fff" : C.textMuted,
+              boxShadow: studyMode === 'quiz' ? `0 4px 12px ${C.primary}44` : "none"
+            }}>
+            ⏱ Time Trial
+          </button>
+          <button onClick={() => setStudyMode('equations')}
+            style={{ flex: 1, padding: "10px", borderRadius: 9, border: "none", cursor: "pointer", fontSize: 13, fontWeight: 700, transition: "all 0.2s",
+              background: studyMode === 'equations' ? `linear-gradient(135deg,${C.tertiary},${C.tertiary}cc)` : "transparent",
+              color: studyMode === 'equations' ? "#332200" : C.textMuted,
+              boxShadow: studyMode === 'equations' ? `0 4px 12px ${C.tertiary}44` : "none"
+            }}>
+            📝 Quick Notes
+          </button>
         </div>
 
         {/* Stats */}
@@ -462,27 +550,31 @@ export default function MicroTimeMode() {
           )}
         </div>
 
-        {/* Duration cards */}
-        <div style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 1.4, fontWeight: 700, marginBottom: 12 }}>Choose Session Length</div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 12, marginBottom: 20 }}>
-          {DURATIONS.map((opt, i) => (
-            <DurCard key={opt.min} opt={opt} selected={duration} onSelect={setDuration} />
-          ))}
-        </div>
+        {/* Duration cards (Quiz mode only) */}
+        {studyMode === 'quiz' && (
+          <>
+            <div style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 1.4, fontWeight: 700, marginBottom: 12 }}>Choose Session Length</div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 12, marginBottom: 20 }}>
+              {DURATIONS.map((opt, i) => (
+                <DurCard key={opt.min} opt={opt} selected={duration} onSelect={setDuration} />
+              ))}
+            </div>
+          </>
+        )}
 
         {/* Start CTA */}
         <button
           className="cta-btn"
-          onClick={startSession}
+          onClick={studyMode === 'quiz' ? startSession : startEquations}
           style={{
             width: "100%", padding: "15px", borderRadius: 12, border: "none",
-            background: `linear-gradient(135deg,${C.primary},${C.primaryDim})`,
-            color: "#fff", fontSize: 15, fontWeight: 800, cursor: "pointer",
+            background: studyMode === 'equations' ? `linear-gradient(135deg,${C.tertiary},${C.tertiary}dd)` : `linear-gradient(135deg,${C.primary},${C.primaryDim})`,
+            color: studyMode === 'equations' ? "#221100" : "#fff", fontSize: 15, fontWeight: 800, cursor: "pointer",
             fontFamily: "Manrope,sans-serif", letterSpacing: -0.3,
-            boxShadow: `0 6px 28px ${C.primary}44`, transition: "all 0.2s",
+            boxShadow: studyMode === 'equations' ? `0 6px 28px ${C.tertiary}55` : `0 6px 28px ${C.primary}44`, transition: "all 0.2s",
           }}
         >
-          ⚡ Start {duration} min Session 🚀
+          {studyMode === 'quiz' ? `⚡ Start ${duration} min Session 🚀` : `📝 Generate Cheat Sheet 🚀`}
         </button>
 
         {/* Info strip */}
