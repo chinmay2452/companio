@@ -95,12 +95,12 @@ async def generate_mcqs(req: MCQRequest) -> dict:
                 "- Do NOT mix with other topics.\n"
                 "- Example: If topic is 'F block', do NOT include D block.\n"
                 "- Use NCERT level.\n"
-                "Return ONLY valid JSON — no markdown, no explanation. "
                 "The JSON must be an object with the key 'questions' containing an array of objects "
                 "with keys: id (string), question (str), "
-                "options (array of EXACTLY 4 strings), "
-                "answer (str, MUST perfectly match one of the exact strings in the options array), "
-                "explanation (str), concept_tested (str)."
+                "options (array of EXACTLY 4 distinct strings. Exactly ONE option must be completely correct), "
+                "answer (str, MUST perfectly match the text of the single correct option), "
+                "explanation (str, provide a detailed step-by-step solution proving why the answer is correct), "
+                "concept_tested (str, specify the specific micro-topic or formula tested in this question)."
             ),
         },
         {
@@ -252,7 +252,7 @@ async def get_weak_areas(user_id: str) -> dict:
         attempts_resp = (
             get_supabase()
             .table("attempts")
-            .select("score, card_id, cards(topic, subject)")
+            .select("score, subject, topic, card_id, cards(topic, subject)")
             .eq("user_id", user_id)
             .execute()
         )
@@ -266,9 +266,14 @@ async def get_weak_areas(user_id: str) -> dict:
     # Aggregate by topic + subject
     topic_stats: dict[str, dict] = {}
     for attempt in attempts:
-        card_info = attempt.get("cards", {}) or {}
-        topic = card_info.get("topic", "unknown")
-        subject = card_info.get("subject", "unknown")
+        card_info = attempt.get("cards") or {}
+        # Prioritize the topic/subject logged directly on the attempt
+        topic = attempt.get("topic") or card_info.get("topic", "unknown")
+        subject = attempt.get("subject") or card_info.get("subject", "unknown")
+        
+        if not topic or topic.lower() in ("unknown", "uncategorized", ""):
+            continue
+            
         key = f"{topic}||{subject}"
 
         if key not in topic_stats:
