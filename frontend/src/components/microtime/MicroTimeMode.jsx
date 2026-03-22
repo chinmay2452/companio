@@ -2,87 +2,138 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useUser, useIsOnline } from '../../store/useAppStore';
 import { api } from '../../lib/api';
 
-const SCREENS = {
-  PICKER: 1,
-  ACTIVE: 2,
-  RESULTS: 3,
-  LOADING: 4
+/* ── Design tokens ──────────────────────────────────────────────── */
+const C = {
+  bg:         "#060e1f",
+  surface:    "#0f192e",
+  surfaceHi:  "#151f36",
+  surfaceTop: "#1a253e",
+  primary:    "#aba3ff",
+  primaryDim: "#6d5fef",
+  secondary:  "#23eea8",
+  tertiary:   "#ffdb8f",
+  error:      "#ff6e84",
+  textPrimary:"#dee5fd",
+  textMuted:  "#a3abc1",
+  outline:    "#40485b",
 };
+const glass = (extra = {}) => ({
+  background: "rgba(15,25,46,0.85)",
+  backdropFilter: "blur(20px)",
+  WebkitBackdropFilter: "blur(20px)",
+  border: `1px solid rgba(64,72,91,0.3)`,
+  borderRadius: 14,
+  ...extra,
+});
 
+const SCREENS = { PICKER: 1, ACTIVE: 2, RESULTS: 3, LOADING: 4 };
+
+/* ── Duration options ───────────────────────────────────────────── */
+const DURATIONS = [
+  { min: 2,  emoji: "⚡", desc: "Quick burst",   badge: "Fast",         badgeColor: C.textMuted },
+  { min: 5,  emoji: "🎯", desc: "Focused",        badge: "Popular",     badgeColor: C.secondary, popular: true },
+  { min: 10, emoji: "🏆", desc: "Power session",  badge: "Recommended", badgeColor: C.tertiary,  recommended: true },
+];
+
+/* ── Stat chip ─────────────────────────────────────────────────── */
+function StatChip({ icon, label, value, glow }) {
+  return (
+    <div style={{ ...glass({ padding: "12px 16px", flex: 1 }), boxShadow: `0 0 18px ${glow}18`, position: "relative", overflow: "hidden" }}>
+      <div style={{ position: "absolute", top: -10, right: -10, width: 40, height: 40, borderRadius: "50%", background: glow, opacity: 0.1, filter: "blur(14px)" }} />
+      <div style={{ fontSize: 10, color: C.textMuted, textTransform: "uppercase", letterSpacing: 1.2, marginBottom: 5 }}>{icon} {label}</div>
+      <div style={{ fontSize: 20, fontWeight: 800, color: glow, fontFamily: "Manrope,sans-serif" }}>{value}</div>
+    </div>
+  );
+}
+
+/* ── Duration card ──────────────────────────────────────────────── */
+function DurCard({ opt, selected, onSelect }) {
+  const [hovered, setHovered] = useState(false);
+  const isActive = selected === opt.min;
+  return (
+    <div
+      onClick={() => onSelect(opt.min)}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        position: "relative", padding: "22px 16px", borderRadius: 14, cursor: "pointer",
+        textAlign: "center", transition: "all 0.22s cubic-bezier(.4,0,.2,1)",
+        background: isActive ? `linear-gradient(135deg,${C.primaryDim}22,${C.primary}10)` : hovered ? C.surfaceHi : C.surface,
+        border: isActive ? `1px solid ${C.primary}77` : hovered ? `1px solid ${C.outline}88` : `1px solid ${C.outline}33`,
+        boxShadow: isActive ? `0 0 28px ${C.primary}28` : hovered ? `0 6px 20px rgba(0,0,0,0.35)` : "none",
+        transform: hovered && !isActive ? "translateY(-4px)" : "none",
+      }}
+    >
+      {/* Badge */}
+      {opt.recommended && (
+        <div style={{
+          position: "absolute", top: -1, left: "50%", transform: "translateX(-50%)",
+          fontSize: 9, fontWeight: 800, letterSpacing: 0.5, textTransform: "uppercase",
+          background: `linear-gradient(135deg,${C.primary},${C.primaryDim})`,
+          WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent",
+          border: `1px solid ${C.primary}55`, borderRadius: "0 0 8px 8px", padding: "1px 10px",
+        }}>⚡ Recommended</div>
+      )}
+      <div style={{ position: "absolute", top: 10, right: 10, fontSize: 9, fontWeight: 700, color: opt.badgeColor, background: `${opt.badgeColor}18`, border: `1px solid ${opt.badgeColor}33`, borderRadius: 10, padding: "2px 7px" }}>{opt.badge}</div>
+
+      <div style={{ fontSize: 32, fontWeight: 800, color: isActive ? C.primary : C.textPrimary, fontFamily: "Manrope,sans-serif", letterSpacing: -1, marginTop: opt.recommended ? 10 : 0, marginBottom: 2, transition: "color 0.2s" }}>
+        {opt.min}
+      </div>
+      <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 8 }}>min</div>
+      <div style={{ fontSize: 20, marginBottom: 4 }}>{opt.emoji}</div>
+      <div style={{ fontSize: 11, color: hovered || isActive ? C.textPrimary : C.textMuted, fontWeight: 500, transition: "color 0.2s" }}>{opt.desc}</div>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════════ */
 export default function MicroTimeMode() {
-  const user = useUser();
+  const user     = useUser();
   const isOnline = useIsOnline();
 
-  const [screen, setScreen] = useState(SCREENS.PICKER);
-  const [duration, setDuration] = useState(2);
-  const [subject, setSubject] = useState('All');
-  const [topic, setTopic] = useState('All');
-  
-  const [sessionId, setSessionId] = useState('');
-  const [items, setItems] = useState([]);
-  const [currentIndex, setCurrentIndex] = useState(0);
-  const [results, setResults] = useState([]);
-  
-  const [timeLeft, setTimeLeft] = useState(0);
-  const [itemStartTime, setItemStartTime] = useState(Date.now());
+  const [screen,           setScreen]           = useState(SCREENS.PICKER);
+  const [duration,         setDuration]         = useState(5);
+  const [subject,          setSubject]          = useState('All');
+  const [topic,            setTopic]            = useState('All');
+  const [sessionId,        setSessionId]        = useState('');
+  const [items,            setItems]            = useState([]);
+  const [currentIndex,     setCurrentIndex]     = useState(0);
+  const [results,          setResults]          = useState([]);
+  const [timeLeft,         setTimeLeft]         = useState(0);
+  const [itemStartTime,    setItemStartTime]    = useState(Date.now());
   const [flashcardFlipped, setFlashcardFlipped] = useState(false);
-  const [mcqAnswered, setMcqAnswered] = useState(null);
-
-  const [finalStats, setFinalStats] = useState(null);
+  const [mcqAnswered,      setMcqAnswered]      = useState(null);
+  const [finalStats,       setFinalStats]       = useState(null);
+  const [sessionsToday,    setSessionsToday]    = useState(2);
   const timerRef = useRef(null);
 
-  const stopTimer = () => {
-    if (timerRef.current) clearInterval(timerRef.current);
-  };
+  const stopTimer = () => { if (timerRef.current) clearInterval(timerRef.current); };
 
   const startSession = async () => {
     const userId = user?.id || "00000000-0000-0000-0000-000000000000";
-    
     setScreen(SCREENS.LOADING);
-    
     try {
-      const payload = {
-        user_id: userId,
-        duration_minutes: duration,
+      const res = await api.post('/api/microtime/session/start', {
+        user_id: userId, duration_minutes: duration,
         subject: subject === 'All' ? null : subject,
-        topic: topic === 'All' ? null : topic
-      };
-
-      const res = await api.post('/api/microtime/session/start', payload);
+        topic: topic === 'All' ? null : topic,
+      });
       const data = res.data;
-      
       setSessionId(data.session_id);
       setItems(data.content || []);
-      setCurrentIndex(0);
-      setResults([]);
-      setFlashcardFlipped(false);
-      setMcqAnswered(null);
-      
+      setCurrentIndex(0); setResults([]); setFlashcardFlipped(false); setMcqAnswered(null);
       const totalSeconds = duration * 60;
-      setTimeLeft(totalSeconds);
-      setItemStartTime(Date.now());
-      
+      setTimeLeft(totalSeconds); setItemStartTime(Date.now());
       setScreen(SCREENS.ACTIVE);
-      
       timerRef.current = setInterval(() => {
-        setTimeLeft((prev) => {
-          if (prev <= 1) {
-            stopTimer();
-            handleSessionEnd(data.session_id, []);
-            return 0;
-          }
+        setTimeLeft(prev => {
+          if (prev <= 1) { stopTimer(); handleSessionEnd(data.session_id, []); return 0; }
           return prev - 1;
         });
       }, 1000);
-
     } catch (err) {
       console.error(err);
-      if (!isOnline) {
-         // Fallback logic for offline mode would ideally go here.
-         alert('Network error. Offline session not fully cached yet.');
-      } else {
-         alert('Error starting session. Please try again.');
-      }
+      alert(isOnline ? 'Error starting session. Please try again.' : 'Network error. Try again when online.');
       setScreen(SCREENS.PICKER);
     }
   };
@@ -90,427 +141,358 @@ export default function MicroTimeMode() {
   const handleSessionEnd = async (activeSessionId = sessionId, forceResults = results) => {
     stopTimer();
     setScreen(SCREENS.LOADING);
-    
-    // Safety fallback payload for UI if API fails completely
     const fallbackStats = {
       streak: 0,
       accuracy: forceResults.length ? (forceResults.filter(r => r.correct).length / forceResults.length) * 100 : 0,
-      oldResults: forceResults
+      oldResults: forceResults,
     };
-
     try {
       const res = await api.post('/api/microtime/session/complete', {
-          session_id: activeSessionId,
-          user_id: user?.id || "00000000-0000-0000-0000-000000000000",
-          items_result: forceResults
+        session_id: activeSessionId, user_id: user?.id || "00000000-0000-0000-0000-000000000000",
+        items_result: forceResults,
       });
-      
-      const data = res.data;
-      setFinalStats({ ...data, oldResults: forceResults });
-      setScreen(SCREENS.RESULTS);
-    } catch (err) {
-      console.error("Session end API failure:", err);
-      if (!isOnline) {
-        // Assume pending sync array in Zustand in production
-        setFinalStats(fallbackStats);
-        setScreen(SCREENS.RESULTS);
-      } else {
-        setFinalStats(fallbackStats);
-        setScreen(SCREENS.RESULTS);
-      }
+      setFinalStats({ ...res.data, oldResults: forceResults });
+    } catch {
+      setFinalStats(fallbackStats);
     }
+    setSessionsToday(s => s + 1);
+    setScreen(SCREENS.RESULTS);
   };
 
-  useEffect(() => {
-    return () => stopTimer();
-  }, []);
+  useEffect(() => () => stopTimer(), []);
 
   const handleNextItem = (correct, forceResults = results) => {
     const currentItem = items[currentIndex];
     const timeSpent = (Date.now() - itemStartTime) / 1000;
-    
-    const newResult = {
-      type: currentItem.type,
-      card_id: currentItem.card_id || undefined,
-      correct: correct,
-      time_seconds: timeSpent,
-      subject: currentItem.subject,
-      topic: currentItem.topic
-    };
-    
+    const newResult = { type: currentItem.type, card_id: currentItem.card_id || undefined, correct, time_seconds: timeSpent, subject: currentItem.subject, topic: currentItem.topic };
     const updatedResults = [...forceResults, newResult];
     setResults(updatedResults);
-    
-    if (currentIndex + 1 >= items.length) {
-      handleSessionEnd(sessionId, updatedResults);
-    } else {
-      setCurrentIndex((prev) => prev + 1);
-      setItemStartTime(Date.now());
-      setFlashcardFlipped(false);
-      setMcqAnswered(null);
-    }
+    if (currentIndex + 1 >= items.length) { handleSessionEnd(sessionId, updatedResults); }
+    else { setCurrentIndex(p => p + 1); setItemStartTime(Date.now()); setFlashcardFlipped(false); setMcqAnswered(null); }
   };
 
-  const handleSkip = () => {
-    handleNextItem(false); 
-  };
+  const formatTime = (sec) => `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
+  const progressPct = items.length > 0 ? Math.round((currentIndex / items.length) * 100) : 0;
 
-  const formatTime = (sec) => {
-    const m = Math.floor(sec / 60);
-    const s = sec % 60;
-    return `${m}:${s < 10 ? '0' : ''}${s}`;
-  };
-
-  // --------------------------------------------------------------------------------
-  // SCREEN 4: LOADING
-  // --------------------------------------------------------------------------------
+  /* ── SCREEN: LOADING ─────────────────────────────────────────── */
   if (screen === SCREENS.LOADING) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-[400px] space-y-4">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
-        <p className="text-gray-600 font-medium">Preparing your session...</p>
-      </div>
+      <>
+        <style>{`@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@700;800&family=Inter:wght@400;500;600&display=swap');@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}`}</style>
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: 400, fontFamily: "Inter,sans-serif", color: C.textPrimary }}>
+          <div style={{ width: 48, height: 48, borderRadius: "50%", border: `3px solid ${C.outline}`, borderTopColor: C.primary, animation: "spin 0.9s linear infinite", marginBottom: 16 }} />
+          <p style={{ color: C.textMuted, fontWeight: 600, fontSize: 13 }}>Preparing your session…</p>
+        </div>
+      </>
     );
   }
 
-  // --------------------------------------------------------------------------------
-  // SCREEN 3: RESULTS
-  // --------------------------------------------------------------------------------
+  /* ── SCREEN: RESULTS ─────────────────────────────────────────── */
   if (screen === SCREENS.RESULTS) {
-    const acc = finalStats?.accuracy || 0;
-    const streak = finalStats?.streak || 0;
-    
+    const acc    = finalStats?.accuracy ?? 0;
+    const streak = finalStats?.streak ?? 0;
     let msg = "Tough session. Revision scheduled automatically ✓";
     if (acc >= 80) msg = "Excellent! Keep the streak alive 🚀";
     else if (acc >= 50) msg = "Good effort. Review the missed ones 💪";
-
-    // Just in case backend overrode the message, we use theirs if present
     if (finalStats?.message) msg = finalStats.message;
-
-    const summaryResults = finalStats?.oldResults || [];
-    const totalCards = summaryResults.filter(r => r.type === 'flashcard').length;
-    const totalMcqs = summaryResults.filter(r => r.type === 'mcq').length;
+    const summarize = finalStats?.oldResults || [];
+    const totalCards = summarize.filter(r => r.type === 'flashcard').length;
+    const totalMcqs  = summarize.filter(r => r.type === 'mcq').length;
 
     return (
-      <div className="max-w-md mx-auto p-8 bg-white rounded-3xl shadow-xl text-center space-y-8 animate-fade-in-up border border-indigo-50">
-        <h2 className="text-3xl font-extrabold text-gray-900">Session Complete!</h2>
-        
-        <div className="py-6">
-          <div className="text-7xl font-black text-indigo-600 tracking-tighter drop-shadow-sm">
-            {Math.round(acc)}%
+      <>
+        <style>{`@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@700;800&family=Inter:wght@400;500;600&display=swap');@keyframes fade-in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}`}</style>
+        <div style={{ padding: "28px", display: "flex", justifyContent: "center", fontFamily: "Inter,sans-serif", color: C.textPrimary }}>
+          <div style={{ ...glass({ padding: "44px 40px", textAlign: "center", maxWidth: 420, width: "100%" }), border: `1px solid ${C.secondary}44`, animation: "fade-in 0.4s ease" }}>
+            <div style={{ fontSize: 52, marginBottom: 12 }}>🏆</div>
+            <h2 style={{ fontSize: 24, fontWeight: 800, color: C.secondary, fontFamily: "Manrope,sans-serif", margin: "0 0 12px" }}>Session Complete!</h2>
+            <div style={{ fontSize: 52, fontWeight: 800, color: C.primary, fontFamily: "Manrope,sans-serif", letterSpacing: -2, lineHeight: 1, marginBottom: 4 }}>{Math.round(acc)}%</div>
+            <div style={{ fontSize: 10, color: C.textMuted, textTransform: "uppercase", letterSpacing: 1.4, marginBottom: 20 }}>Accuracy</div>
+            <div style={{ display: "inline-flex", alignItems: "center", gap: 8, background: `${C.tertiary}18`, border: `1px solid ${C.tertiary}44`, borderRadius: 24, padding: "8px 20px", marginBottom: 20 }}>
+              <span style={{ fontSize: 16 }}>🔥</span>
+              <span style={{ fontSize: 14, fontWeight: 800, color: C.tertiary, fontFamily: "Manrope,sans-serif" }}>{streak} Day Streak!</span>
+            </div>
+            <div style={{ ...glass({ padding: "14px 18px", marginBottom: 20 }), border: `1px solid ${C.primary}22` }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: C.textPrimary, lineHeight: 1.5 }}>{msg}</div>
+            </div>
+            <div style={{ display: "flex", gap: 16, justifyContent: "center", marginBottom: 24 }}>
+              {[{ label: "Flashcards", val: totalCards, col: C.primary }, { label: "MCQs", val: totalMcqs, col: C.secondary }].map((r, i) => (
+                <div key={i} style={{ ...glass({ padding: "12px 20px" }) }}>
+                  <div style={{ fontSize: 22, fontWeight: 800, color: r.col, fontFamily: "Manrope,sans-serif" }}>{r.val}</div>
+                  <div style={{ fontSize: 10, color: C.textMuted, textTransform: "uppercase", letterSpacing: 1 }}>{r.label}</div>
+                </div>
+              ))}
+            </div>
+            <button
+              onClick={() => setScreen(SCREENS.PICKER)}
+              style={{ width: "100%", background: `linear-gradient(135deg,${C.primary},${C.primaryDim})`, color: "#fff", border: "none", borderRadius: 12, padding: "13px", fontSize: 14, fontWeight: 800, cursor: "pointer", fontFamily: "Manrope,sans-serif", boxShadow: `0 4px 20px ${C.primary}44` }}
+            >⚡ Study Again</button>
           </div>
-          <p className="text-indigo-400 mt-2 font-bold uppercase tracking-widest text-sm">Accuracy</p>
         </div>
-
-        <div className="bg-gradient-to-br from-orange-400 to-orange-500 text-white font-black py-4 px-8 rounded-full inline-block text-xl shadow-lg border border-orange-300 transform -rotate-2 hover:rotate-0 transition-all cursor-default">
-          🔥 {streak} DAY STREAK!
-        </div>
-
-        <div className="text-gray-700 bg-indigo-50 border border-indigo-100 rounded-2xl p-5 font-bold text-lg mb-4 shadow-inner">
-          {msg}
-        </div>
-
-        <div className="flex justify-center gap-8 text-base text-gray-500 mb-8 bg-gray-50 rounded-2xl py-4 border border-gray-100">
-          <div className="flex flex-col"><span className="font-black text-2xl text-gray-800">{totalCards}</span> <span className="text-xs uppercase font-bold text-gray-400">Flashcards</span></div>
-          <div className="flex flex-col"><span className="font-black text-2xl text-gray-800">{totalMcqs}</span> <span className="text-xs uppercase font-bold text-gray-400">MCQs</span></div>
-        </div>
-
-        <div className="flex flex-col gap-4">
-          <button 
-            onClick={() => setScreen(SCREENS.PICKER)}
-            className="w-full bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white font-bold py-4 px-4 rounded-2xl shadow-lg transition-transform"
-          >
-            Study Again
-          </button>
-          <button 
-            className="w-full bg-gray-100 hover:bg-gray-200 text-gray-800 font-bold py-4 px-4 rounded-2xl transition-colors"
-          >
-            Back to Dashboard
-          </button>
-        </div>
-      </div>
+      </>
     );
   }
 
-  // --------------------------------------------------------------------------------
-  // SCREEN 2: ACTIVE SESSION
-  // --------------------------------------------------------------------------------
+  /* ── SCREEN: ACTIVE SESSION ──────────────────────────────────── */
   if (screen === SCREENS.ACTIVE) {
     const currentItem = items[currentIndex];
-    
+    const isLow = timeLeft < 30;
     return (
-      <div className="max-w-xl mx-auto flex flex-col min-h-[550px] border border-gray-200 rounded-3xl shadow-2xl overflow-hidden bg-white">
-        
-        {!isOnline && (
-          <div className="bg-yellow-100 text-yellow-800 text-sm text-center py-2 font-bold animate-pulse">
-            You're offline — session will sync on reconnect
-          </div>
-        )}
-        
-        {/* Top Bar */}
-        <div className="bg-white px-6 py-5 flex justify-between items-center border-b border-gray-100 relative z-10">
-          <div className="flex items-center gap-4">
-            <span className={`text-xl font-mono font-black tracking-tight px-4 py-1.5 rounded-lg ${timeLeft < 30 ? 'bg-red-100 text-red-600 animate-pulse' : 'bg-gray-100 text-gray-700'}`}>
-              {formatTime(timeLeft)}
-            </span>
-            <div className="text-sm font-bold text-indigo-400 bg-indigo-50 border border-indigo-100 px-3 py-1 rounded-full">
-              {currentIndex + 1} / {items.length}
+      <>
+        <style>{`@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@700;800&family=Inter:wght@400;500;600&display=swap');@keyframes fade-in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}@keyframes pulse-red{0%,100%{opacity:1}50%{opacity:.6}}`}</style>
+        <div style={{ maxWidth: 640, margin: "0 auto", padding: "18px 20px", fontFamily: "Inter,sans-serif", color: C.textPrimary }}>
+
+          {!isOnline && (
+            <div style={{ background: `${C.tertiary}18`, border: `1px solid ${C.tertiary}44`, borderRadius: 8, padding: "8px 14px", fontSize: 12, color: C.tertiary, textAlign: "center", marginBottom: 12, fontWeight: 600 }}>
+              ⚠️ Offline — session will sync on reconnect
+            </div>
+          )}
+
+          {/* Timer card */}
+          <div style={{ ...glass({ padding: "16px 20px", marginBottom: 16 }) }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <span style={{
+                  fontSize: 22, fontWeight: 800, fontFamily: "Manrope,sans-serif", letterSpacing: -1,
+                  color: isLow ? C.error : C.secondary,
+                  animation: isLow ? "pulse-red 0.8s ease-in-out infinite" : "none",
+                }}>
+                  {formatTime(timeLeft)}
+                </span>
+                <span style={{ fontSize: 11, color: C.primary, background: `${C.primary}18`, padding: "3px 10px", borderRadius: 6, fontWeight: 700 }}>
+                  {currentIndex + 1} / {items.length}
+                </span>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, background: `${C.tertiary}18`, border: `1px solid ${C.tertiary}33`, borderRadius: 20, padding: "4px 12px" }}>
+                <span style={{ fontSize: 13 }}>🔥</span>
+                <span style={{ fontSize: 11, fontWeight: 700, color: C.tertiary }}>Streak</span>
+              </div>
+            </div>
+            <div style={{ height: 6, background: C.surfaceTop, borderRadius: 3, overflow: "hidden" }}>
+              <div style={{ height: "100%", width: `${progressPct}%`, borderRadius: 3, transition: "width 0.5s ease", background: `linear-gradient(90deg,${C.primaryDim},${C.primary},${C.secondary})`, boxShadow: `0 0 8px ${C.primary}66` }} />
             </div>
           </div>
-          <div className="flex bg-orange-50 text-orange-500 px-4 py-1.5 rounded-full font-black text-sm border border-orange-100 items-center justify-center shadow-sm">
-             🔥 Streak
-          </div>
-        </div>
-        
-        {/* Progress bar */}
-        <div className="h-2 w-full bg-gray-100">
-          <div 
-            className="h-2 bg-gradient-to-r from-indigo-500 to-purple-500 transition-all duration-500 ease-out" 
-            style={{ width: `${(currentIndex / items.length) * 100}%` }}
-          ></div>
-        </div>
 
-        {/* Content Area */}
-        <div className="flex-1 p-8 flex flex-col justify-center relative bg-gray-50/50">
-          
+          {/* Flashcard */}
           {currentItem?.type === 'flashcard' && (
-            <div 
-              className="w-full max-w-sm mx-auto min-h-[300px] relative cursor-pointer group"
-              style={{ perspective: '1000px' }}
-              onClick={() => !flashcardFlipped && setFlashcardFlipped(true)}
-            >
-              <div 
-                className="w-full h-full absolute transition-transform duration-500 rounded-3xl shadow-lg hover:shadow-xl"
-                style={{ transformStyle: 'preserve-3d', transform: flashcardFlipped ? 'rotateY(180deg)' : 'rotateY(0deg)' }}
+            <div style={{ animation: "fade-in 0.3s ease" }}>
+              <div
+                onClick={() => !flashcardFlipped && setFlashcardFlipped(true)}
+                style={{
+                  ...glass({ padding: "44px 32px", textAlign: "center", cursor: "pointer", minHeight: 220, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", marginBottom: 12, transition: "all 0.3s" }),
+                  border: flashcardFlipped ? `1px solid ${C.primary}55` : `1px solid ${C.outline}33`,
+                  boxShadow: flashcardFlipped ? `0 0 28px ${C.primary}18` : "none",
+                  background: flashcardFlipped ? `linear-gradient(135deg,${C.primaryDim}08,${C.primary}04)` : "rgba(15,25,46,0.85)",
+                }}
               >
-                {/* Front */}
-                <div 
-                  className="absolute w-full h-full bg-white rounded-3xl p-8 flex flex-col justify-center items-center border-2 border-gray-100 hover:border-indigo-200 transition-colors" 
-                  style={{ backfaceVisibility: 'hidden' }}
-                >
-                  <span className="text-xs uppercase tracking-widest text-indigo-400 font-black mb-6 bg-indigo-50 py-1 px-3 rounded-full">{currentItem.topic}</span>
-                  <div className="text-2xl font-bold text-center text-gray-800 leading-snug">{currentItem.front}</div>
-                  <div className="mt-10 text-sm text-gray-400 font-bold uppercase tracking-wider animate-bounce">↓ Tap to reveal ↓</div>
+                <div style={{ fontSize: 10, color: C.textMuted, textTransform: "uppercase", letterSpacing: 1.4, marginBottom: 14 }}>
+                  {flashcardFlipped ? "Answer — tap to flip back" : "Question — tap to reveal"}
                 </div>
-                {/* Back */}
-                <div 
-                  className="absolute w-full h-full bg-indigo-50 rounded-3xl p-8 flex flex-col justify-center items-center border-2 border-indigo-200" 
-                  style={{ backfaceVisibility: 'hidden', transform: 'rotateY(180deg)' }}
-                >
-                  <div className="text-2xl font-bold text-center text-indigo-900 leading-snug overflow-y-auto">{currentItem.back}</div>
+                <div style={{ fontSize: 11, color: C.primary, background: `${C.primary}18`, padding: "3px 10px", borderRadius: 6, marginBottom: 16, fontWeight: 700 }}>{currentItem.topic}</div>
+                <div style={{ fontSize: 17, fontWeight: 600, lineHeight: 1.6, color: flashcardFlipped ? C.primary : C.textPrimary }}>
+                  {flashcardFlipped ? currentItem.back : currentItem.front}
                 </div>
+                {!flashcardFlipped && <div style={{ fontSize: 11, color: C.textMuted, marginTop: 16 }}>↓ Tap to reveal</div>}
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button onClick={() => handleNextItem(false)} style={{ flex: 1, background: "transparent", border: `1px solid ${C.outline}33`, borderRadius: 10, padding: "10px", fontSize: 12, color: C.textMuted, cursor: "pointer" }}>Skip</button>
+                {flashcardFlipped && (
+                  <>
+                    <button onClick={() => handleNextItem(false)} style={{ flex: 1, background: `${C.error}18`, color: C.error, border: `1px solid ${C.error}33`, borderRadius: 10, padding: "10px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>✗ Missed</button>
+                    <button onClick={() => handleNextItem(true)}  style={{ flex: 1, background: `linear-gradient(135deg,${C.secondary}cc,#1cc693)`, color: "#031a12", border: "none", borderRadius: 10, padding: "10px", fontSize: 12, fontWeight: 800, cursor: "pointer" }}>✓ Got it</button>
+                  </>
+                )}
               </div>
             </div>
           )}
 
+          {/* MCQ */}
           {currentItem?.type === 'mcq' && (
-            <div className="w-full max-w-md mx-auto flex flex-col">
-              <span className="text-xs uppercase tracking-widest text-indigo-400 font-black mb-3 self-start">{currentItem.topic}</span>
-              <h3 className="text-2xl font-extrabold text-gray-800 mb-8 leading-snug">{currentItem.question}</h3>
-              <div className="flex flex-col gap-3">
-                {currentItem.options.map((opt, idx) => {
-                  let btnClass = "text-left px-6 py-5 rounded-2xl border-2 font-bold transition-all duration-200 text-lg ";
-                  if (mcqAnswered === null) {
-                    btnClass += "border-gray-200 hover:border-indigo-400 hover:bg-indigo-50 bg-white text-gray-700 shadow-sm";
-                  } else {
-                    if (idx === currentItem.correct_index) {
-                      btnClass += "border-green-500 bg-green-50 text-green-800 shadow-md transform scale-[1.02]";
-                    } else if (idx === mcqAnswered) {
-                      btnClass += "border-red-500 bg-red-50 text-red-800";
-                    } else {
-                      btnClass += "border-gray-200 bg-gray-50 text-gray-400 opacity-50";
+            <div style={{ animation: "fade-in 0.3s ease" }}>
+              <div style={{ ...glass({ padding: "22px 20px", marginBottom: 12 }) }}>
+                <div style={{ fontSize: 11, color: C.primary, background: `${C.primary}18`, padding: "3px 10px", borderRadius: 6, marginBottom: 12, fontWeight: 700, display: "inline-block" }}>{currentItem.topic}</div>
+                <div style={{ fontSize: 15, fontWeight: 700, lineHeight: 1.6, color: C.textPrimary, marginBottom: 16 }}>{currentItem.question}</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {currentItem.options.map((opt, idx) => {
+                    let bg = C.surfaceTop, border = `1px solid ${C.outline}33`, color = C.textPrimary;
+                    if (mcqAnswered !== null) {
+                      if (idx === currentItem.correct_index) { bg = `${C.secondary}12`; border = `1px solid ${C.secondary}55`; color = C.secondary; }
+                      else if (idx === mcqAnswered)           { bg = `${C.error}12`;    border = `1px solid ${C.error}55`;    color = C.error; }
+                      else                                    { color = C.textMuted; }
                     }
-                  }
-                  
-                  return (
-                    <button 
-                      key={idx}
-                      disabled={mcqAnswered !== null}
-                      onClick={() => setMcqAnswered(idx)}
-                      className={btnClass}
-                    >
-                      {opt}
-                    </button>
-                  );
-                })}
-              </div>
-              {mcqAnswered !== null && (
-                <div className="mt-8 text-sm text-gray-700 bg-white border border-gray-200 p-5 rounded-xl shadow-sm font-medium animate-fade-in-up">
-                  <span className="font-black text-indigo-600 block mb-1">Explanation:</span> 
-                  {currentItem.explanation || "You've selected an answer. The correct logic follows the principles of " + currentItem.topic + "."}
+                    return (
+                      <button key={idx} disabled={mcqAnswered !== null} onClick={() => setMcqAnswered(idx)}
+                        style={{ textAlign: "left", padding: "11px 14px", borderRadius: 9, border, background: bg, color, cursor: mcqAnswered !== null ? "default" : "pointer", fontSize: 13, transition: "all 0.2s", fontFamily: "inherit", display: "flex", gap: 10, alignItems: "center" }}
+                      >
+                        <span style={{ fontWeight: 800, color: "inherit", fontFamily: "monospace", opacity: 0.7 }}>{String.fromCharCode(65 + idx)}.</span>
+                        {opt}
+                      </button>
+                    );
+                  })}
                 </div>
-              )}
-            </div>
-          )}
-
-          {currentItem?.type === 'formula' && (
-            <div className="w-full max-w-sm mx-auto flex flex-col items-center">
-              <span className="text-xs uppercase tracking-widest text-indigo-400 font-black mb-6">{currentItem.topic}</span>
-              <div className="bg-gray-900 text-green-400 font-mono text-2xl py-8 px-8 rounded-2xl shadow-xl w-full text-center tracking-wider mb-8 border border-gray-800">
-                {currentItem.formula_text}
+                {mcqAnswered !== null && currentItem.explanation && (
+                  <div style={{ marginTop: 14, ...glass({ padding: "12px 14px" }), border: `1px solid ${C.primary}22`, animation: "fade-in 0.2s ease" }}>
+                    <span style={{ fontSize: 10, color: C.primary, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1 }}>Explanation: </span>
+                    <span style={{ fontSize: 12, color: C.textMuted, lineHeight: 1.6 }}>{currentItem.explanation}</span>
+                  </div>
+                )}
               </div>
-              <p className="text-gray-700 text-center font-semibold leading-relaxed text-lg bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-                {currentItem.explanation}
-              </p>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button onClick={() => handleNextItem(false)} style={{ background: "transparent", border: `1px solid ${C.outline}33`, borderRadius: 10, padding: "10px 16px", fontSize: 12, color: C.textMuted, cursor: "pointer" }}>Skip</button>
+                {mcqAnswered !== null && (
+                  <button onClick={() => handleNextItem(mcqAnswered === currentItem.correct_index)}
+                    style={{ flex: 1, background: `linear-gradient(135deg,${C.primary},${C.primaryDim})`, color: "#fff", border: "none", borderRadius: 10, padding: "10px", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+                    Next →
+                  </button>
+                )}
+              </div>
             </div>
           )}
-          
-        </div>
 
-        {/* Bottom Actions */}
-        <div className="bg-white border-t border-gray-100 p-5 flex justify-between items-center z-10">
-          <button onClick={handleSkip} className="text-gray-400 hover:text-gray-700 font-bold px-5 py-3 rounded-xl hover:bg-gray-50 transition-colors">
-            Skip
-          </button>
-          
-          <div className="flex gap-3">
-            {currentItem?.type === 'flashcard' && flashcardFlipped && (
-              <>
-                <button 
-                  onClick={() => handleNextItem(false)} 
-                  className="bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 font-black py-3 px-8 rounded-xl transition-colors"
-                >
-                  Missed ✗
-                </button>
-                <button 
-                  onClick={() => handleNextItem(true)} 
-                  className="bg-green-500 hover:bg-green-600 text-white font-black py-3 px-8 rounded-xl shadow-lg hover:shadow-xl transition-all active:scale-95"
-                >
-                  Got it ✓
-                </button>
-              </>
-            )}
-            
-            {currentItem?.type === 'mcq' && mcqAnswered !== null && (
-              <button 
-                onClick={() => handleNextItem(mcqAnswered === currentItem.correct_index)}
-                className="bg-indigo-600 hover:bg-indigo-700 text-white font-black py-3 px-10 rounded-xl shadow-lg hover:shadow-xl transition-all active:scale-95"
-              >
-                Next ➔
-              </button>
-            )}
-
-            {currentItem?.type === 'formula' && (
-              <button 
-                onClick={() => handleNextItem(true)}
-                className="bg-indigo-600 hover:bg-indigo-700 text-white font-black py-3 px-10 rounded-xl shadow-lg hover:shadow-xl transition-all active:scale-95"
-              >
+          {/* Formula */}
+          {currentItem?.type === 'formula' && (
+            <div style={{ animation: "fade-in 0.3s ease" }}>
+              <div style={{ ...glass({ padding: "28px 24px", textAlign: "center", marginBottom: 12 }) }}>
+                <div style={{ fontSize: 11, color: C.primary, background: `${C.primary}18`, padding: "3px 10px", borderRadius: 6, marginBottom: 20, fontWeight: 700, display: "inline-block" }}>{currentItem.topic}</div>
+                <div style={{ background: C.surfaceTop, borderRadius: 12, padding: "22px 20px", fontFamily: "monospace", fontSize: 22, color: C.secondary, letterSpacing: 1, marginBottom: 18, boxShadow: `inset 0 0 20px rgba(0,0,0,0.3)`, border: `1px solid ${C.secondary}33` }}>
+                  {currentItem.formula_text}
+                </div>
+                <p style={{ fontSize: 13, color: C.textMuted, lineHeight: 1.7 }}>{currentItem.explanation}</p>
+              </div>
+              <button onClick={() => handleNextItem(true)} style={{ width: "100%", background: `linear-gradient(135deg,${C.primary},${C.primaryDim})`, color: "#fff", border: "none", borderRadius: 10, padding: "12px", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
                 Got it ✓
               </button>
-            )}
+            </div>
+          )}
+
+          {/* End session */}
+          <div style={{ textAlign: "center", marginTop: 14 }}>
+            <button onClick={() => handleSessionEnd()} style={{ background: "none", border: `1px solid ${C.error}33`, color: C.error, borderRadius: 8, padding: "7px 18px", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>
+              End Session
+            </button>
           </div>
         </div>
-      </div>
+      </>
     );
   }
 
-  // --------------------------------------------------------------------------------
-  // SCREEN 1: DURATION PICKER
-  // --------------------------------------------------------------------------------
+  /* ── SCREEN: PICKER ──────────────────────────────────────────── */
   return (
-    <div className="max-w-4xl mx-auto py-12 px-6">
-      <div className="text-center mb-16">
-        <h1 className="text-5xl font-black text-gray-900 mb-6 tracking-tight">Micro-Time Study</h1>
-        <p className="text-xl text-gray-500 max-w-2xl mx-auto font-medium leading-relaxed">Short, focused burst sessions. Pick your available time limit and crush some concepts before your next class!</p>
-      </div>
+    <>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Manrope:wght@700;800&family=Inter:wght@400;500;600&display=swap');
+        @keyframes card-in  { from{opacity:0;transform:translateY(10px)} to{opacity:1;transform:none} }
+        @keyframes fade-in   { from{opacity:0;transform:translateY(6px)}  to{opacity:1;transform:none} }
+        @keyframes lightning { 0%,100%{opacity:.7} 50%{opacity:1} }
+        .cta-btn:hover { filter: brightness(1.1); transform: scale(1.02); }
+      `}</style>
+      <div style={{ padding: "24px 28px", fontFamily: "Inter,sans-serif", color: C.textPrimary, maxWidth: 640, margin: "0 auto" }}>
 
-      <div className="flex flex-col sm:flex-row justify-center items-center gap-4 mb-12">
-        <div className="relative inline-block w-full sm:w-72">
-           <select 
-             value={subject} 
-             onChange={(e) => {
-               setSubject(e.target.value);
-               setTopic('All'); // Reset topic when subject changes
-             }}
-             className="block w-full bg-white border-2 border-gray-200 text-gray-800 py-4 px-6 pr-10 rounded-2xl font-bold shadow-sm focus:outline-none focus:ring-4 focus:ring-indigo-100 focus:border-indigo-500 appearance-none cursor-pointer text-lg hover:border-gray-300 transition-colors"
-             style={{ backgroundImage: `url('data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%234F46E5%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E')`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 1rem top 50%', backgroundSize: '1rem auto' }}
-           >
-             {['All', 'Physics', 'Chemistry', 'Biology', 'Maths'].map(sub => (
-               <option key={sub} value={sub}>{sub === 'All' ? '📌  All Subjects' : sub}</option>
-             ))}
-           </select>
+        {/* Header */}
+        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 20 }}>
+          <div>
+            <h1 style={{ fontSize: 24, fontWeight: 800, letterSpacing: -0.5, fontFamily: "Manrope,sans-serif", margin: 0 }}>⚡ Micro Learn</h1>
+            <p style={{ color: C.textMuted, fontSize: 13, margin: "5px 0 0" }}>High-impact study sessions for when time is short</p>
+          </div>
+          <div style={{ ...glass({ padding: "8px 16px" }), display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+            <span style={{ fontSize: 16, animation: "lightning 2s ease-in-out infinite" }}>🔥</span>
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 800, color: C.tertiary, fontFamily: "Manrope,sans-serif" }}>Streak Active!</div>
+              <div style={{ fontSize: 10, color: C.textMuted }}>Keep it going</div>
+            </div>
+          </div>
         </div>
 
-        {subject !== 'All' && (
-          <div className="relative inline-block w-full sm:w-80 animate-fade-in-up">
-             <select 
-               value={topic} 
-               onChange={(e) => setTopic(e.target.value)}
-               className="block w-full bg-indigo-50 border-2 border-indigo-200 text-indigo-900 py-4 px-6 pr-10 rounded-2xl font-bold shadow-sm focus:outline-none focus:ring-4 focus:ring-indigo-100 focus:border-indigo-500 appearance-none cursor-pointer text-lg hover:border-indigo-300 transition-colors"
-               style={{ backgroundImage: `url('data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%234F46E5%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E')`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 1rem top 50%', backgroundSize: '1rem auto' }}
-             >
-               <option value="All">📑 All Chapters</option>
-               {subject === 'Physics' && (
-                 <>
-                   <option value="Ch 1: Kinematics (Formulas)">Ch 1: Kinematics (Formulas)</option>
-                   <option value="Ch 2: Thermodynamics (Formulas)">Ch 2: Thermodynamics (Formulas)</option>
-                   <option value="Ch 3: Electromagnetism">Ch 3: Electromagnetism</option>
-                   <option value="Ch 4: Mechanics (Concepts)">Ch 4: Mechanics (Concepts)</option>
-                   <option value="Ch 5: Optics (Diagrams)">Ch 5: Optics (Diagrams)</option>
-                   <option value="Ch 6: Modern Physics">Ch 6: Modern Physics</option>
-                 </>
-               )}
-               {subject === 'Chemistry' && (
-                 <>
-                   <option value="Ch 1: Chemical Bonding (Names)">Ch 1: Chemical Bonding (Things to mug up)</option>
-                   <option value="Ch 2: Organic Chemistry (Reactions)">Ch 2: Organic Chemistry (Reactions)</option>
-                   <option value="Ch 3: Periodicity (Exceptions)">Ch 3: Periodicity (Exceptions)</option>
-                   <option value="Ch 4: Coordination Compounds">Ch 4: Coordination Compounds</option>
-                   <option value="Ch 5: Electrochemistry">Ch 5: Electrochemistry</option>
-                   <option value="Ch 6: s-Block & p-Block">Ch 6: s-Block & p-Block</option>
-                 </>
-               )}
-               {subject === 'Maths' && (
-                 <>
-                   <option value="Ch 1: Calculus (Formulas)">Ch 1: Calculus (Formulas)</option>
-                   <option value="Ch 2: Coordinate Geometry (Formulas)">Ch 2: Coordinate Geometry (Formulas)</option>
-                   <option value="Ch 3: Algebra">Ch 3: Algebra</option>
-                   <option value="Ch 4: Trigonometry (Identities)">Ch 4: Trigonometry (Identities)</option>
-                   <option value="Ch 5: Matrices & Determinants">Ch 5: Matrices & Determinants</option>
-                   <option value="Ch 6: Probability & Statistics">Ch 6: Probability & Statistics</option>
-                 </>
-               )}
-               {subject === 'Biology' && (
-                 <>
-                   <option value="Ch 1: Cell Biology (Facts)">Ch 1: Cell Biology (Facts)</option>
-                   <option value="Ch 2: Human Physiology">Ch 2: Human Physiology</option>
-                   <option value="Ch 3: Genetics">Ch 3: Genetics</option>
-                   <option value="Ch 4: Plant Physiology">Ch 4: Plant Physiology</option>
-                   <option value="Ch 5: Ecology & Environment">Ch 5: Ecology & Environment</option>
-                   <option value="Ch 6: Biotechnology">Ch 6: Biotechnology</option>
-                 </>
-               )}
-             </select>
-          </div>
-        )}
-      </div>
+        {/* Stats */}
+        <div style={{ display: "flex", gap: 12, marginBottom: 20 }}>
+          <StatChip icon="🎯" label="Sessions Today" value={sessionsToday}  glow={C.secondary} />
+          <StatChip icon="⏱" label="Session Length"  value={`${duration}m`} glow={C.primary}   />
+          <StatChip icon="📚" label="Subject"          value={subject}        glow={C.tertiary}  />
+        </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-16">
-        {[
-          { min: 2, label: '2 flashcards', icon: '⚡' },
-          { min: 5, label: '2 cards + 1 MCQ', icon: '🧠' },
-          { min: 10, label: '3 cards + 2 MCQ + formulas', icon: '🏆' }
-        ].map((opt) => (
-          <div 
-            key={opt.min}
-            onClick={() => setDuration(opt.min)}
-            className={`cursor-pointer rounded-3xl p-8 border-2 transition-all duration-300 transform flex flex-col items-center justify-center text-center ${duration === opt.min ? 'border-indigo-600 bg-indigo-50 shadow-xl scale-105 ring-4 ring-indigo-600 ring-opacity-10' : 'border-gray-200 bg-white shadow-sm hover:border-indigo-300 hover:shadow-md hover:-translate-y-1'}`}
-          >
-            <div className="text-5xl mb-6 drop-shadow-sm">{opt.icon}</div>
-            <div className={`text-4xl font-black mb-3 ${duration === opt.min ? 'text-indigo-900' : 'text-gray-800'}`}>{opt.min} <span className="text-2xl font-bold">min</span></div>
-            <div className={`text-base font-bold uppercase tracking-wider ${duration === opt.min ? 'text-indigo-500' : 'text-gray-400'}`}>{opt.label}</div>
+        {/* Inline config */}
+        <div style={{ ...glass({ padding: "16px 18px", marginBottom: 20 }), display: "flex", gap: 12, alignItems: "flex-end" }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 10, color: C.textMuted, textTransform: "uppercase", letterSpacing: 1, marginBottom: 5 }}>Subject</div>
+            <select value={subject} onChange={e => { setSubject(e.target.value); setTopic('All'); }}
+              style={{ width: "100%", background: C.surfaceTop, border: "none", borderRadius: 8, color: C.textPrimary, fontSize: 13, padding: "9px 12px", outline: "none", cursor: "pointer" }}>
+              {['All', 'Physics', 'Chemistry', 'Biology', 'Maths'].map(s => <option key={s} value={s}>{s === 'All' ? '📌 All Subjects' : s}</option>)}
+            </select>
           </div>
-        ))}
-      </div>
+          {subject !== 'All' && (
+            <div style={{ flex: 1.4 }}>
+              <div style={{ fontSize: 10, color: C.textMuted, textTransform: "uppercase", letterSpacing: 1, marginBottom: 5 }}>Chapter / Topic</div>
+              <select value={topic} onChange={e => setTopic(e.target.value)}
+                style={{ width: "100%", background: C.surfaceTop, border: "none", borderRadius: 8, color: C.textPrimary, fontSize: 13, padding: "9px 12px", outline: "none", cursor: "pointer" }}>
+                <option value="All">📑 All Chapters</option>
+                {subject === 'Physics' && (<>
+                  <option value="Ch 1: Kinematics (Formulas)">Ch 1: Kinematics (Formulas)</option>
+                  <option value="Ch 2: Thermodynamics (Formulas)">Ch 2: Thermodynamics (Formulas)</option>
+                  <option value="Ch 3: Electromagnetism">Ch 3: Electromagnetism</option>
+                  <option value="Ch 4: Mechanics (Concepts)">Ch 4: Mechanics (Concepts)</option>
+                  <option value="Ch 5: Optics (Diagrams)">Ch 5: Optics (Diagrams)</option>
+                  <option value="Ch 6: Modern Physics">Ch 6: Modern Physics</option>
+                </>)}
+                {subject === 'Chemistry' && (<>
+                  <option value="Ch 1: Chemical Bonding (Names)">Ch 1: Chemical Bonding</option>
+                  <option value="Ch 2: Organic Chemistry (Reactions)">Ch 2: Organic Chemistry</option>
+                  <option value="Ch 3: Periodicity (Exceptions)">Ch 3: Periodicity</option>
+                  <option value="Ch 4: Coordination Compounds">Ch 4: Coordination Compounds</option>
+                  <option value="Ch 5: Electrochemistry">Ch 5: Electrochemistry</option>
+                  <option value="Ch 6: s-Block & p-Block">Ch 6: s-Block & p-Block</option>
+                </>)}
+                {subject === 'Maths' && (<>
+                  <option value="Ch 1: Calculus (Formulas)">Ch 1: Calculus</option>
+                  <option value="Ch 2: Coordinate Geometry (Formulas)">Ch 2: Coordinate Geometry</option>
+                  <option value="Ch 3: Algebra">Ch 3: Algebra</option>
+                  <option value="Ch 4: Trigonometry (Identities)">Ch 4: Trigonometry</option>
+                  <option value="Ch 5: Matrices & Determinants">Ch 5: Matrices & Determinants</option>
+                  <option value="Ch 6: Probability & Statistics">Ch 6: Probability</option>
+                </>)}
+                {subject === 'Biology' && (<>
+                  <option value="Ch 1: Cell Biology (Facts)">Ch 1: Cell Biology</option>
+                  <option value="Ch 2: Human Physiology">Ch 2: Human Physiology</option>
+                  <option value="Ch 3: Genetics">Ch 3: Genetics</option>
+                  <option value="Ch 4: Plant Physiology">Ch 4: Plant Physiology</option>
+                  <option value="Ch 5: Ecology & Environment">Ch 5: Ecology</option>
+                  <option value="Ch 6: Biotechnology">Ch 6: Biotechnology</option>
+                </>)}
+              </select>
+            </div>
+          )}
+        </div>
 
-      <div className="flex justify-center">
-        <button 
+        {/* Duration cards */}
+        <div style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 1.4, fontWeight: 700, marginBottom: 12 }}>Choose Session Length</div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 12, marginBottom: 20 }}>
+          {DURATIONS.map((opt, i) => (
+            <DurCard key={opt.min} opt={opt} selected={duration} onSelect={setDuration} />
+          ))}
+        </div>
+
+        {/* Start CTA */}
+        <button
+          className="cta-btn"
           onClick={startSession}
-          className="bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white font-black text-2xl py-5 px-16 rounded-full shadow-2xl hover:shadow-[0_20px_40px_-10px_rgba(79,70,229,0.5)] transition-all duration-300"
+          style={{
+            width: "100%", padding: "15px", borderRadius: 12, border: "none",
+            background: `linear-gradient(135deg,${C.primary},${C.primaryDim})`,
+            color: "#fff", fontSize: 15, fontWeight: 800, cursor: "pointer",
+            fontFamily: "Manrope,sans-serif", letterSpacing: -0.3,
+            boxShadow: `0 6px 28px ${C.primary}44`, transition: "all 0.2s",
+          }}
         >
-          Start Session 🚀
+          ⚡ Start {duration} min Session 🚀
         </button>
+
+        {/* Info strip */}
+        <div style={{ ...glass({ padding: "14px 18px", marginTop: 16 }), display: "flex", alignItems: "center", gap: 14 }}>
+          <div style={{ fontSize: 22 }}>💡</div>
+          <div style={{ fontSize: 11, color: C.textMuted, lineHeight: 1.6 }}>
+            Students using Micro Mode during commutes retain 40% more. Even 2 minutes of spaced revision dramatically reduces the forgetting curve.
+          </div>
+        </div>
       </div>
-    </div>
+    </>
   );
 }
