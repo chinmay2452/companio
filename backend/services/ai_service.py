@@ -39,6 +39,7 @@ def chat(
     model: str = FAST_MODEL,
     stream: bool = False,
     max_tokens: int = 1024,
+    json_mode: bool = False,
 ) -> str:
     """Send a chat-completion request and return the assistant message.
 
@@ -47,16 +48,22 @@ def chat(
         model: Groq model identifier.
         stream: Whether to use streaming (ignored here; use ``stream_chat``).
         max_tokens: Maximum tokens in the response.
+        json_mode: If True, enforces strict JSON structured output.
 
     Returns:
         The text content of the assistant's reply.
     """
-    response = groq_client.chat.completions.create(
-        model=model,
-        messages=messages,
-        stream=False,
-        max_tokens=max_tokens,
-    )
+    kwargs = {
+        "model": model,
+        "messages": messages,
+        "stream": False,
+        "max_tokens": max_tokens,
+    }
+    
+    if json_mode:
+        kwargs["response_format"] = {"type": "json_object"}
+        
+    response = groq_client.chat.completions.create(**kwargs)
     return response.choices[0].message.content
 
 
@@ -240,7 +247,7 @@ def extract_concept(
     ]
 
     try:
-        raw = chat(messages, model=FAST_MODEL, max_tokens=300)
+        raw = chat(messages, model=FAST_MODEL, max_tokens=300, json_mode=True)
         raw = raw.strip()
         # Find JSON boundaries
         start = -1

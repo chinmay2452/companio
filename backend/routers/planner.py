@@ -98,7 +98,7 @@ async def generate_plan(req: PlanRequest) -> dict:
             "content": (
                 f"You are an expert {req.exam_type} study planner for Indian competitive exams. "
                 "Create a realistic, actionable daily study plan. "
-                "Return ONLY a valid JSON array — no markdown, no explanation, no wrapping object. "
+                "Return ONLY a valid JSON object with a single key 'plan'. The value must be an array. "
                 "Each element in the array must be an object with EXACTLY these keys:\n"
                 '  "time" (string like "08:00 AM"),\n'
                 '  "type" (one of "NEW", "REVISE", "PRACTICE", "BREAK"),\n'
@@ -112,8 +112,7 @@ async def generate_plan(req: PlanRequest) -> dict:
                 "- Due SRS cards should get REVISE blocks\n"
                 "- Include 1-2 short breaks\n"
                 "- Start from morning, schedule realistically through the day\n"
-                "- Provide specific topic names, not generic ones\n"
-                "- Return ONLY the JSON array, nothing else"
+                "- Provide specific topic names, not generic ones"
             ),
         },
         {
@@ -126,46 +125,31 @@ async def generate_plan(req: PlanRequest) -> dict:
                 f"{topic_focus_hint} "
                 f"Weak topics (prioritise these along with requested topics): {weak_list}. "
                 f"SRS cards due for review: {due_summary}. "
-                "Return ONLY the JSON array."
+                "Return ONLY the JSON object with the 'plan' array."
             ),
         },
     ]
 
     try:
-        plan_text: str = chat(messages, model=FAST_MODEL, max_tokens=2048)
+        plan_text: str = chat(messages, model=FAST_MODEL, max_tokens=2048, json_mode=True)
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"AI planner failed: {e}")
 
-    # Parse the JSON response robustly
-    plan_json = []
+    # Parse the JSON response strictly
     try:
-        # First try normal JSON parsing after stripping basic markdown
-        stripped = _strip_markdown_fences(plan_text)
-        plan_json = json.loads(stripped)
+        parsed = json.loads(plan_text)
+        plan_json = parsed.get("plan", [])
     except json.JSONDecodeError:
-        # Fallback: extract the largest array from the text using regex
-        try:
-            match = re.search(r"\[.*\]", plan_text, re.DOTALL)
-            if match:
-                plan_json = json.loads(match.group(0))
-            else:
-                # Try finding a single object
-                match_obj = re.search(r"\{.*\}", plan_text, re.DOTALL)
-                if match_obj:
-                    plan_json = json.loads(match_obj.group(0))
-                else:
-                    raise ValueError("No JSON payload found")
-        except Exception:
-            # Last resort fallback
-            plan_json = [{
-                "time": "08:00 AM",
-                "type": "NEW",
-                "topic": "AI-generated plan (raw)",
-                "detail": plan_text[:200] + "...",
-                "subject": "General",
-                "duration_min": 60,
-                "priority": "medium"
-            }]
+        print("Fallback: AI Planner failed to return valid JSON.")
+        plan_json = [{
+            "time": "08:00 AM",
+            "type": "NEW",
+            "topic": "System Error",
+            "subject": req.subjects[0] if req.subjects else "General",
+            "detail": "Failed to generate plan. Please try again.",
+            "duration_min": 60,
+            "priority": "high",
+        }]
 
     # Ensure it's a list
     if isinstance(plan_json, dict):

@@ -1,10 +1,16 @@
 import axios from "axios";
 
-// Change this to your teammate's backend URL when they share it
-const BASE = "http://localhost:8000";
+// Dynamically use the same IP address as the frontend, but on port 8000
+const getBaseUrl = () => {
+  if (import.meta.env.VITE_API_URL) return import.meta.env.VITE_API_URL;
+  if (typeof window !== "undefined") {
+    return `${window.location.protocol}//${window.location.hostname}:8000`;
+  }
+  return "http://localhost:8000";
+};
 
 export const api = axios.create({
-  baseURL: BASE,
+  baseURL: getBaseUrl(),
   headers: { "Content-Type": "application/json" },
 });
 

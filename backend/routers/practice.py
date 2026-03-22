@@ -115,7 +115,7 @@ async def generate_mcqs(req: MCQRequest) -> dict:
     ]
 
     try:
-        result_text: str = chat(messages, model=FAST_MODEL)
+        result_text: str = chat(messages, model=FAST_MODEL, json_mode=True)
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"MCQ generation failed: {e}")
 
