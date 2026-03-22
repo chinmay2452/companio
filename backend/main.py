@@ -3,6 +3,7 @@ AI Learning Companion — FastAPI Backend
 DevClash 2026 @ NIT Raipur
 
 Main application entry point with CORS middleware and router registration.
+All six feature modules are mounted under /api/*.
 """
 
 from fastapi import FastAPI
@@ -15,7 +16,7 @@ from routers import srs, planner, practice, tutor, microtime, hindi_tutor
 app = FastAPI(
     title="AI Learning Companion",
     description="Personalised AI study assistant for JEE / NEET / UPSC aspirants",
-    version="0.1.0",
+    version="2.0",
 )
 
 # ── CORS ─────────────────────────────────────────────────────────────
@@ -28,32 +29,32 @@ app.add_middleware(
 )
 
 # ── Register routers ────────────────────────────────────────────────
-app.include_router(srs.router,          prefix="/api/srs",          tags=["SRS"])
-app.include_router(planner.router,      prefix="/api/planner",      tags=["Planner"])
-app.include_router(practice.router,     prefix="/api/practice",     tags=["Practice"])
-app.include_router(tutor.router,        prefix="/api/tutor",        tags=["Tutor"])
-app.include_router(microtime.router,    prefix="/api/microtime",    tags=["Microtime"])
-app.include_router(hindi_tutor.router,  prefix="/api/hindi_tutor",  tags=["Hindi Tutor"])
+app.include_router(srs.router,          prefix="/api/srs",        tags=["SRS"])
+app.include_router(planner.router,      prefix="/api/planner",    tags=["Planner"])
+app.include_router(practice.router,     prefix="/api/practice",   tags=["Practice"])
+app.include_router(tutor.router,        prefix="/api/tutor",      tags=["Tutor"])
+app.include_router(microtime.router,    prefix="/api/microtime",  tags=["Micro-Time"])
+app.include_router(hindi_tutor.router,  prefix="/api/tutor",      tags=["Hindi Tutor"])
 
 # ── Root health-check ───────────────────────────────────────────────
-FEATURES = [
+MODULES = [
     "Spaced Repetition System (SRS)",
     "AI Study Planner",
     "Adaptive Practice / MCQ Generator",
     "RAG-Powered Tutor",
-    "Micro-Time Optimiser",
-    "Hindi-Medium Tutor",
+    "Micro-Time Mode",
+    "Hindi Voice Tutor",
 ]
 
 
 @app.get("/")
 async def root() -> dict:
-    """Health-check endpoint that lists every registered feature."""
+    """Health-check endpoint that lists every registered module."""
     return {
         "status": "running",
-        "project": "AI Learning Companion",
-        "hackathon": "DevClash 2026 — NIT Raipur",
-        "features": FEATURES,
+        "version": "2.0",
+        "modules": MODULES,
+        "docs": "http://localhost:8000/docs",
     }
 
 
