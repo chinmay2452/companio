@@ -18,6 +18,7 @@ export default function VoiceHindiTutor() {
   const [history,   setHistory] = useState([]);
   const [lastQ,     setLastQ]   = useState("");
   const [lastA,     setLastA]   = useState("");
+  const [textInput, setTextInput] = useState("");
   const [lang,      setLang]    = useState("hi-IN"); // hi-IN or en-IN
   const [error,     setError]   = useState("");
   const recognitionRef = useRef(null);
@@ -44,38 +45,58 @@ export default function VoiceHindiTutor() {
     recognition.onerror  = () => { setState("idle"); setError("Mic error — please allow microphone access"); };
 
     recognition.onresult = async (e) => {
-      const question = e.results[0][0].transcript;
-      setLastQ(question);
-      setState("thinking");
-
-      // Keep history for multi-turn context
-      const recentHistory = history.slice(-HISTORY_MAX);
-
-      let answer = "";
-      try {
-        const res = await askTutorHindi(question, recentHistory, "General", user?.id);
-        answer = res.data?.answer || res.data?.response || "";
-      } catch (err) {
-        console.error("AI Tutor fell back to offline mode:", err);
-        // Fallback offline answers in Hindi
-        answer = getHindiAnswer(question);
+      let finalTranscript = "";
+      for (let i = e.resultIndex; i < e.results.length; ++i) {
+        if (e.results[i].isFinal) {
+          finalTranscript += e.results[i][0].transcript;
+        }
       }
-
-      setLastA(answer);
-      setHistory(h => [...h, { role:"user", text:question }, { role:"ai", text:answer }]);
-
-      // Speak the answer
-      setState("speaking");
-      const utterance = new SpeechSynthesisUtterance(answer);
-      utterance.lang = lang;
-      utterance.rate = 0.9;
-      utterance.onend = () => setState("idle");
-      utteranceRef.current = utterance;
-      window.speechSynthesis.cancel();
-      window.speechSynthesis.speak(utterance);
+      if (finalTranscript.trim()) {
+        processQuestion(finalTranscript.trim());
+      }
     };
 
     recognition.start();
+  };
+
+  const processQuestion = async (question) => {
+    setLastQ(question);
+    setState("thinking");
+
+    // Keep history for multi-turn context
+    const recentHistory = history.slice(-HISTORY_MAX);
+
+    let answer = "";
+    try {
+      // Pass the fully authenticated userId from the store, and the explicitly selected language
+      const res = await askTutorHindi(question, recentHistory, "General", user?.id || "demo", lang);
+      answer = res.data?.answer || res.data?.response || "";
+    } catch (err) {
+      console.error("AI Tutor fell back to offline mode:", err);
+      // Fallback offline answers in Hindi
+      answer = getHindiAnswer(question);
+    }
+
+    setLastA(answer);
+    setHistory(h => [...h, { role:"user", text:question }, { role:"ai", text:answer }]);
+
+    // Speak the answer
+    setState("speaking");
+    const utterance = new SpeechSynthesisUtterance(answer);
+    utterance.lang = lang;
+    utterance.rate = 0.9;
+    utterance.onend = () => setState("idle");
+    utteranceRef.current = utterance;
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(utterance);
+  };
+
+  const handleTextSubmit = (e) => {
+    e.preventDefault();
+    if (!textInput.trim() || state === "thinking" || state === "listening") return;
+    const question = textInput.trim();
+    setTextInput("");
+    processQuestion(question);
   };
 
   const stopSpeaking = () => {
@@ -158,6 +179,44 @@ export default function VoiceHindiTutor() {
           :"Answering aloud — click to stop"}
         </div>
       </div>
+
+      {/* Manual Text Fallback */}
+      <form onSubmit={handleTextSubmit} style={{ display: "flex", gap: 8, marginBottom: 28, maxWidth: 500, margin: "0 auto 28px" }}>
+        <input 
+          type="text" 
+          value={textInput}
+          onChange={(e) => setTextInput(e.target.value)}
+          placeholder="Or type your doubt directly if mic isn't working..."
+          disabled={state === "thinking"}
+          style={{ 
+            flex: 1, 
+            background: "#131e35", 
+            border: "1px solid #1a2840", 
+            borderRadius: 8, 
+            color: "#e8eaf6", 
+            fontSize: 13, 
+            padding: "12px 16px",
+            outline: "none"
+          }} 
+        />
+        <button 
+          type="submit" 
+          disabled={!textInput.trim() || state === "thinking"}
+          style={{
+            background: "#7c6fff", 
+            color: "#fff", 
+            border: "none",
+            borderRadius: 8, 
+            padding: "0 20px", 
+            fontSize: 13, 
+            fontWeight: 600, 
+            cursor: (!textInput.trim() || state === "thinking") ? "not-allowed" : "pointer",
+            opacity: (!textInput.trim() || state === "thinking") ? 0.6 : 1
+          }}
+        >
+          Send
+        </button>
+      </form>
 
       <style>{`@keyframes pulse{0%,100%{box-shadow:0 0 0 12px #ff4d6d22,0 0 0 24px #ff4d6d11}50%{box-shadow:0 0 0 18px #ff4d6d33,0 0 0 32px #ff4d6d18}}`}</style>
 

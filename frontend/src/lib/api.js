@@ -64,12 +64,13 @@ export const getSrsStats = (userId) =>
   api.get(`/api/srs/stats/${userId}`);
 
 // ── AI Tutor ──────────────────────────────────────────────────────
-export const askTutorHindi = (question, history = [], subject = "General", userId) =>
+export const askTutorHindi = (question, history = [], subject = "General", userId, language = "hi-IN") =>
   api.post("/api/tutor/hindi", {
     question,
     history,
     subject,
     user_id: userId,
+    language
   });
 
 // ── Micro-Time ────────────────────────────────────────────────────

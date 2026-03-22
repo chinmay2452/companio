@@ -15,17 +15,17 @@ from services.ai_service import chat, stream_chat, QUALITY_MODEL
 
 router = APIRouter()
 
-# ── System Prompt (exact spec) ───────────────────────────────────────
-
-HINDI_SYSTEM_PROMPT = (
-    "Aap ek expert JEE/NEET/UPSC tutor hain jo Hindi aur Hinglish mein padhate hain.\n"
-    "Rules:\n"
-    "- Hamesha simple Hindi ya Hinglish mein jawab do\n"
-    "- Short answers — max 4-5 sentences (will be spoken aloud)\n"
-    "- Examples zaroor do\n"
-    "- Formulas ko simple shabdon mein samjhao\n"
-    "- Step by step batao for complex concepts"
-)
+def _get_system_prompt(language: str) -> str:
+    dialect = "pure Hindi" if language == "hi-IN" else "Hinglish (a mix of English vocabulary and Hindi grammar)"
+    return (
+        f"Aap ek expert JEE/NEET/UPSC tutor hain jo {dialect} mein padhate hain.\n"
+        "Rules:\n"
+        f"- Hamesha apna jawab deeply {dialect} mein likho.\n"
+        "- Detail mein jawab do taki student topic ko deeply samajh sake.\n"
+        "- Har concept ka ek clear example zaroor do.\n"
+        "- Agar koi formula hai, toh use simple shabdon mein tod kar samjhao (break it down).\n"
+        "- Step by step batao for complex concepts."
+    )
 
 
 # ── Request Models ───────────────────────────────────────────────────
@@ -41,6 +41,7 @@ class HindiRequest(BaseModel):
     question: str
     subject: str
     user_id: str
+    language: str = "hi-IN"
     history: list[ChatMessage] = []
 
 
@@ -49,6 +50,7 @@ class HindiStreamRequest(BaseModel):
     question: str
     subject: str
     user_id: str
+    language: str = "hi-IN"
     history: list[ChatMessage] = []
 
 
@@ -58,10 +60,11 @@ def _build_hindi_messages(
     question: str,
     subject: str,
     history: list[ChatMessage],
+    language: str,
 ) -> list[dict[str, str]]:
     """Build the messages list with system prompt, recent history, and user query."""
     messages: list[dict[str, str]] = [
-        {"role": "system", "content": HINDI_SYSTEM_PROMPT},
+        {"role": "system", "content": _get_system_prompt(language)},
     ]
     # Include last 6 messages from history for context
     for msg in history[-6:]:
@@ -84,7 +87,7 @@ async def ask_hindi(req: HindiRequest) -> dict:
     recent chat history (up to 6 messages), and returns a concise,
     voice-friendly answer.
     """
-    messages = _build_hindi_messages(req.question, req.subject, req.history)
+    messages = _build_hindi_messages(req.question, req.subject, req.history, req.language)
 
     try:
         answer: str = chat(messages, model=QUALITY_MODEL, max_tokens=512)
@@ -101,7 +104,7 @@ async def stream_hindi(req: HindiStreamRequest) -> StreamingResponse:
     Same logic as ``/hindi`` but yields chunks via SSE for
     real-time voice synthesis on the frontend.
     """
-    messages = _build_hindi_messages(req.question, req.subject, req.history)
+    messages = _build_hindi_messages(req.question, req.subject, req.history, req.language)
 
     async def event_generator():
         try:
