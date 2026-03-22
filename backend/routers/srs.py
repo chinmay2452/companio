@@ -39,6 +39,8 @@ class CardCreateRequest(BaseModel):
     user_id: str
     topic: str
     subject: str
+    front: str = ""
+    back: str = ""
 
 
 # ── Endpoints ────────────────────────────────────────────────────────
@@ -51,6 +53,23 @@ async def get_due_cards_endpoint(user_id: str) -> dict:
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch due cards: {e}")
     return {"due_cards": cards, "count": len(cards)}
+
+
+@router.get("/cards/{user_id}")
+async def list_all_cards(user_id: str) -> dict:
+    """Return ALL flashcards for a user (not just due ones)."""
+    try:
+        response = (
+            get_supabase()
+            .table("cards")
+            .select("id, user_id, subject, topic, front, back, ease_factor, interval_days, repetitions, due_date")
+            .eq("user_id", user_id)
+            .order("due_date")
+            .execute()
+        )
+        return {"cards": response.data, "count": len(response.data)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to list cards: {e}")
 
 
 @router.post("/review")
@@ -78,24 +97,14 @@ async def submit_review(req: ReviewRequest) -> dict:
 
     if req.score >= 3:
         new_interval = 1 if repetitions == 0 else (6 if repetitions == 1 else round(interval_days * ease_factor))
-        new_rep = repetitions + 1
-    else:
-        new_rep = 0
-        new_interval = 1
-        
-    new_ef = max(1.3, ease_factor + (0.1 - (5 - req.score) * (0.08 + (5 - req.score) * 0.02)))
-    new_due_date = (date.today() + timedelta(days=new_interval)).isoformat()
-
-    # Calculate new repetitions
-    if req.score >= 3:
         new_reps = repetitions + 1
     else:
         new_reps = 0
+        new_interval = 1
 
-    # Calculate new due date
+    new_ef = max(1.3, ease_factor + (0.1 - (5 - req.score) * (0.08 + (5 - req.score) * 0.02)))
     new_due_date = (date.today() + timedelta(days=new_interval)).isoformat()
 
-    # Persist updates (matches updated supabase_service signature)
     try:
         update_card_after_review(req.card_id, new_ef, new_interval, new_reps, new_due_date)
         log_attempt(
@@ -122,6 +131,8 @@ async def submit_review(req: ReviewRequest) -> dict:
 async def create_card(req: CardCreateRequest) -> dict:
     """Insert a new flashcard into the Supabase cards table."""
     today_iso = date.today().isoformat()
+    front = req.front or f"What is a key concept in {req.topic}?"
+    back = req.back or f"Explain the fundamentals of {req.topic} in {req.subject}."
     try:
         response = (
             get_supabase()
@@ -131,12 +142,12 @@ async def create_card(req: CardCreateRequest) -> dict:
                     "user_id": req.user_id,
                     "topic": req.topic,
                     "subject": req.subject,
-                    "front": f"What is a key concept in {req.topic}?",
-                    "back": f"Explain the fundamentals of {req.topic} in {req.subject}.",
+                    "front": front,
+                    "back": back,
                     "ease_factor": 2.5,
                     "interval_days": 1,
                     "repetitions": 0,
-                    "next_review": today_iso,
+                    "due_date": today_iso,
                 }
             )
             .execute()
@@ -144,6 +155,32 @@ async def create_card(req: CardCreateRequest) -> dict:
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to create card: {e}")
     return {"card": response.data[0] if response.data else response.data}
+
+
+@router.delete("/cards/clear/{user_id}")
+async def clear_all_data(user_id: str) -> dict:
+    """⚠️ Wipe ALL data for a user: cards, attempts, plans, weak_topics."""
+    sb = get_supabase()
+    deleted = {}
+    for table in ["attempts", "weak_topics", "daily_plans", "cards"]:
+        try:
+            res = sb.table(table).delete().eq("user_id", user_id).execute()
+            deleted[table] = len(res.data) if res.data else 0
+        except Exception as e:
+            deleted[table] = f"error: {e}"
+    return {"cleared": deleted}
+
+
+@router.delete("/cards/{card_id}")
+async def delete_card(card_id: str) -> dict:
+    """Delete a single flashcard by ID."""
+    try:
+        # Also remove related attempts
+        get_supabase().table("attempts").delete().eq("card_id", card_id).execute()
+        get_supabase().table("cards").delete().eq("id", card_id).execute()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to delete card: {e}")
+    return {"deleted": card_id}
 
 
 @router.get("/stats/{user_id}")

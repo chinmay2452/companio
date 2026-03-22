@@ -161,3 +161,70 @@ def generate_mcq(topic: str, difficulty: str = "medium") -> dict:
             "options": ["Option A", "Option B", "Option C", "Option D"],
             "correct_index": 0,
         }
+
+
+def extract_concept(
+    question: str,
+    correct_answer: str,
+    subject: str,
+    topic: str,
+) -> dict:
+    """Extract the core concept from a wrong-answered question and generate a flashcard.
+
+    Returns a dict with keys: concept, formula, front, back.
+    Uses FAST_MODEL for speed since this runs on every wrong answer.
+    """
+    import json
+
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "You are an expert education analyst. A student answered a question incorrectly. "
+                "Extract the core concept they need to revise and generate a flashcard.\n"
+                "Return ONLY valid JSON with these keys:\n"
+                '- "concept": short concept name (e.g. "Kinetic Energy")\n'
+                '- "formula": key formula if applicable, or empty string (e.g. "KE = ½mv²")\n'
+                '- "front": flashcard question (concise, e.g. "What is the formula for Kinetic Energy?")\n'
+                '- "back": flashcard answer with explanation (e.g. "KE = ½mv², where m = mass in kg, v = velocity in m/s")\n'
+                "No markdown. No extra text. ONLY the JSON object."
+            ),
+        },
+        {
+            "role": "user",
+            "content": (
+                f"Subject: {subject}\n"
+                f"Topic: {topic}\n"
+                f"Question: {question}\n"
+                f"Correct Answer: {correct_answer}\n"
+                "Extract the core concept and generate a revision flashcard."
+            ),
+        },
+    ]
+
+    try:
+        raw = chat(messages, model=FAST_MODEL, max_tokens=300)
+        raw = raw.strip()
+        # Find JSON boundaries
+        start = -1
+        end = -1
+        for i, c in enumerate(raw):
+            if c == '{':
+                start = i
+                break
+        for i in range(len(raw) - 1, -1, -1):
+            if raw[i] == '}':
+                end = i
+                break
+        if start != -1 and end != -1:
+            return json.loads(raw[start:end + 1])
+    except Exception:
+        pass
+
+    # Fallback if AI fails
+    return {
+        "concept": topic,
+        "formula": "",
+        "front": f"What is a key concept in {topic} ({subject})?",
+        "back": f"Review the fundamentals of {topic} in {subject}. Correct answer was: {correct_answer}",
+    }

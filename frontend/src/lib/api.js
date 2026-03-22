@@ -45,6 +45,18 @@ export const getWeakAreas = (userId) =>
 export const getDueCards = (userId) =>
   api.get(`/api/srs/due/${userId}`);
 
+export const getAllCards = (userId) =>
+  api.get(`/api/srs/cards/${userId}`);
+
+export const createCard = (userId, subject, topic, front, back) =>
+  api.post("/api/srs/cards", { user_id: userId, subject, topic, front, back });
+
+export const deleteCard = (cardId) =>
+  api.delete(`/api/srs/cards/${cardId}`);
+
+export const clearAllData = (userId) =>
+  api.delete(`/api/srs/cards/clear/${userId}`);
+
 export const reviewCard = (userId, cardId, score) =>
   api.post("/api/srs/review", { user_id: userId, card_id: cardId, score });
 
