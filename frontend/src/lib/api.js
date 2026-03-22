@@ -64,8 +64,13 @@ export const getSrsStats = (userId) =>
   api.get(`/api/srs/stats/${userId}`);
 
 // ── AI Tutor ──────────────────────────────────────────────────────
-export const askTutorHindi = (question, history = [], subject = "General", userId = DEMO_USER) =>
-  api.post("/api/tutor/hindi", { question, history, subject, user_id: userId });
+export const askTutorHindi = (question, history = [], subject = "General", userId) =>
+  api.post("/api/tutor/hindi", {
+    question,
+    history,
+    subject,
+    user_id: userId,
+  });
 
 // ── Micro-Time ────────────────────────────────────────────────────
 export const getMicroSession = (userId, minutes) =>

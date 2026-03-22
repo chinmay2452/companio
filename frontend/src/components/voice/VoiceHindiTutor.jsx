@@ -1,5 +1,5 @@
-import { useState, useRef } from "react";
-import { askTutorHindi, DEMO_USER } from "../../lib/api";
+import React, { useState, useRef, useEffect } from "react";
+import { askTutorHindi } from "../../lib/api";
 import { useUser } from "../../store/useAppStore";
 
 // States: idle | listening | thinking | speaking
@@ -53,7 +53,7 @@ export default function VoiceHindiTutor() {
 
       let answer = "";
       try {
-        const res = await askTutorHindi(question, recentHistory, "General", user?.id || DEMO_USER);
+        const res = await askTutorHindi(question, recentHistory, "General", user?.id);
         answer = res.data?.answer || res.data?.response || "";
       } catch (err) {
         console.error("AI Tutor fell back to offline mode:", err);
