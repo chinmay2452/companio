@@ -56,6 +56,7 @@ async def get_due_cards_endpoint(user_id: str) -> dict:
 @router.post("/review")
 async def submit_review(req: ReviewRequest) -> dict:
     """Process a single card review using the SM-2 algorithm."""
+    from datetime import date, timedelta
     try:
         card_resp = (
             get_supabase()
@@ -75,8 +76,15 @@ async def submit_review(req: ReviewRequest) -> dict:
     subject: str = card.get("subject", "Unknown")
     topic: str = card.get("topic", "Unknown")
 
-    # Run SM-2 algorithm
-    new_ef, new_interval = sm2(ease_factor, interval_days, req.score)
+    if req.score >= 3:
+        new_interval = 1 if repetitions == 0 else (6 if repetitions == 1 else round(interval_days * ease_factor))
+        new_rep = repetitions + 1
+    else:
+        new_rep = 0
+        new_interval = 1
+        
+    new_ef = max(1.3, ease_factor + (0.1 - (5 - req.score) * (0.08 + (5 - req.score) * 0.02)))
+    new_due_date = (date.today() + timedelta(days=new_interval)).isoformat()
 
     # Calculate new repetitions
     if req.score >= 3:

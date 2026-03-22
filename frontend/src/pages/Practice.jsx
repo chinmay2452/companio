@@ -27,12 +27,14 @@ export default function Practice() {
   const [weakFlag,   setWeakFlag]   = useState(false);
 
   const loadQuestions = async () => {
+    if (!subject || !topic) return;
+    console.log("Generating questions:", { subject, topic, difficulty });
     setLoading(true);
     setQIdx(0); setSelected(null); setRevealed(false);
     setStats({ correct:0, wrong:0 }); setWeakFlag(false);
     try {
       const res = await generateQuestions(subject, topic, difficulty);
-      setQuestions(res.data?.questions || FALLBACK);
+      setQuestions(res.data?.questions?.length ? res.data.questions : FALLBACK);
     } catch {
       setQuestions(FALLBACK);
     }
@@ -52,7 +54,7 @@ export default function Practice() {
     const newStats = { correct: stats.correct + (correct?1:0), wrong: stats.wrong + (correct?0:1) };
     setStats(newStats);
     if (!correct && newStats.wrong >= 2) setWeakFlag(true);
-    try { await submitAnswer(DEMO_USER, q.id, correct, timeSec); } catch {}
+    try { await submitAnswer(DEMO_USER, q.id, q.question, opt, q.answer, timeSec); } catch (e) { console.error(e) }
   };
 
   const nextQ = () => {
@@ -102,7 +104,7 @@ export default function Practice() {
             {DIFFICULTIES.map(d=><option key={d}>{d}</option>)}
           </select>
         </div>
-        <button onClick={loadQuestions} disabled={loading} style={btnStyle}>
+        <button onClick={loadQuestions} disabled={loading || !subject || !topic} style={btnStyle}>
           {loading?"Loading…":"Generate Questions"}
         </button>
       </div>
@@ -156,9 +158,14 @@ export default function Practice() {
               <button onClick={nextQ} style={btnStyle}>Next Question →</button>
             )}
             {revealed && qIdx === qs.length-1 && (
-              <button onClick={loadQuestions} style={{ ...btnStyle, background:"#00e5a022", color:"#00e5a0", border:"1px solid #00e5a044" }}>
-                🔄 New Set
-              </button>
+              <div style={{ display: "flex", gap: "8px" }}>
+                <button onClick={loadQuestions} style={{ ...btnStyle, background:"#00e5a022", color:"#00e5a0", border:"1px solid #00e5a044" }}>
+                  🔄 New Set
+                </button>
+                <button onClick={() => setQuestions(null)} style={{ ...btnStyle, background:"#ff4d6d22", color:"#ff4d6d", border:"1px solid #ff4d6d44" }}>
+                  ✏️ Change Topic
+                </button>
+              </div>
             )}
           </div>
         </div>

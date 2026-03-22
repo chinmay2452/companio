@@ -26,12 +26,16 @@ export const getTodayPlan = (userId) =>
 export const generateQuestions = (subject, topic, difficulty) =>
   api.post("/api/practice/generate", { subject, topic, difficulty });
 
-export const submitAnswer = (userId, questionId, correct, timeSec) =>
+export const submitAnswer = (userId, questionId, question, userAnswer, correctAnswer, timeSec, subject, topic) =>
   api.post("/api/practice/submit", {
     user_id: userId,
-    question_id: questionId,
-    correct,
+    card_id: String(questionId),
+    question,
+    user_answer: userAnswer,
+    correct_answer: correctAnswer,
     time_seconds: timeSec,
+    subject: subject || "Unknown",
+    topic: topic || "Unknown",
   });
 
 export const getWeakAreas = (userId) =>
@@ -41,8 +45,8 @@ export const getWeakAreas = (userId) =>
 export const getDueCards = (userId) =>
   api.get(`/api/srs/due/${userId}`);
 
-export const reviewCard = (userId, cardId, quality) =>
-  api.post("/api/srs/review", { user_id: userId, card_id: cardId, quality });
+export const reviewCard = (userId, cardId, score) =>
+  api.post("/api/srs/review", { user_id: userId, card_id: cardId, score });
 
 export const getSrsStats = (userId) =>
   api.get(`/api/srs/stats/${userId}`);
@@ -60,4 +64,4 @@ export const getUserStats = (userId) =>
   api.get(`/api/srs/stats/${userId}`);
 
 // Demo user ID — replaced at runtime by Supabase auth user
-export const DEMO_USER = "demo-user-001";
+export const DEMO_USER = "81f73dbc-1976-4a7c-8f97-4af1ceb34105";

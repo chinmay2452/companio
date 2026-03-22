@@ -38,6 +38,8 @@ class SubmitRequest(BaseModel):
     user_answer: str
     correct_answer: str
     time_seconds: int = 0
+    subject: str = "Unknown"
+    topic: str = "Unknown"
 
 
 # ── Helpers ──────────────────────────────────────────────────────────
@@ -54,31 +56,46 @@ def _strip_markdown_fences(text: str) -> str:
 
 @router.post("/generate")
 async def generate_mcqs(req: MCQRequest) -> dict:
-    """Generate PYQ-style MCQs via the Groq FAST_MODEL.
+    if not req.subject or not req.topic:
+        raise HTTPException(status_code=400, detail="Subject and topic required")
 
-    Returns a structured JSON object with a ``questions`` array, each
-    containing ``id``, ``question``, ``options``, ``correct``,
-    ``explanation``, and ``concept_tested``.
-    """
+    TOPIC_SCOPE = {
+        "F block": "Lanthanides and Actinides only",
+        "f block": "Lanthanides and Actinides only",
+        "F-block": "Lanthanides and Actinides only",
+        "D block": "Transition metals only",
+        "d block": "Transition metals only",
+        "D-block": "Transition metals only",
+    }
+    scope = TOPIC_SCOPE.get(req.topic, req.topic)
+
     messages = [
         {
             "role": "system",
             "content": (
                 f"You are a {req.exam_type} Previous Year Question paper setter. "
-                "Generate realistic, exam-quality MCQs. "
+                "Generate realistic, exam-quality MCQs.\n"
+                "STRICT RULES:\n"
+                "- Only generate from the given topic.\n"
+                "- Do NOT include related chapters.\n"
+                "- Do NOT mix with other topics.\n"
+                "- Example: If topic is 'F block', do NOT include D block.\n"
+                "- Use NCERT level.\n"
                 "Return ONLY valid JSON — no markdown, no explanation. "
-                "The JSON must have key 'questions' containing an array of objects "
-                "with keys: id (int), question (str), "
-                "options (object with keys A, B, C, D), "
-                "correct (one of A/B/C/D), explanation (str), "
-                "concept_tested (str)."
+                "The JSON must be an object with the key 'questions' containing an array of objects "
+                "with keys: id (string), question (str), "
+                "options (array of EXACTLY 4 strings), "
+                "answer (str, MUST perfectly match one of the exact strings in the options array), "
+                "explanation (str), concept_tested (str)."
             ),
         },
         {
             "role": "user",
             "content": (
-                f"Generate {req.count} {req.difficulty}-level PYQ-style MCQs on "
-                f"'{req.topic}' ({req.subject}) for {req.exam_type} exam."
+                f"Generate {req.count} {req.difficulty}-level PYQ-style MCQs.\n"
+                f"Subject: {req.subject}\n"
+                f"Topic: {req.topic}\n"
+                f"Topic scope: {scope}"
             ),
         },
     ]
@@ -89,10 +106,11 @@ async def generate_mcqs(req: MCQRequest) -> dict:
         raise HTTPException(status_code=502, detail=f"MCQ generation failed: {e}")
 
     try:
-        questions = json.loads(_strip_markdown_fences(result_text))
+        parsed = json.loads(_strip_markdown_fences(result_text))
+        questions = parsed.get("questions", parsed) if isinstance(parsed, dict) else parsed
     except json.JSONDecodeError:
         # Fallback: return raw text so the frontend can handle it
-        questions = {"raw": result_text}
+        questions = []
 
     return {"questions": questions}
 
@@ -109,7 +127,16 @@ async def submit_answer(req: SubmitRequest) -> dict:
     score = 5 if is_correct else 0
 
     try:
-        log_attempt(req.user_id, req.card_id, score, req.time_seconds)
+        log_attempt(
+            user_id=req.user_id,
+            card_id=None,
+            subject=req.subject,
+            topic=req.topic,
+            correct=is_correct,
+            score=score,
+            time_seconds=req.time_seconds,
+            source="practice"
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to log attempt: {e}")
 
