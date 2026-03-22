@@ -1,5 +1,6 @@
 import { useState, useRef } from "react";
-import { askTutorHindi } from "../../lib/api";
+import { askTutorHindi, DEMO_USER } from "../../lib/api";
+import { useUser } from "../../store/useAppStore";
 
 // States: idle | listening | thinking | speaking
 const STATE_CONFIG = {
@@ -12,6 +13,7 @@ const STATE_CONFIG = {
 const HISTORY_MAX = 5;
 
 export default function VoiceHindiTutor() {
+  const user = useUser();
   const [state,     setState]   = useState("idle");
   const [history,   setHistory] = useState([]);
   const [lastQ,     setLastQ]   = useState("");
@@ -51,9 +53,10 @@ export default function VoiceHindiTutor() {
 
       let answer = "";
       try {
-        const res = await askTutorHindi(question, recentHistory);
+        const res = await askTutorHindi(question, recentHistory, "General", user?.id || DEMO_USER);
         answer = res.data?.answer || res.data?.response || "";
-      } catch {
+      } catch (err) {
+        console.error("AI Tutor fell back to offline mode:", err);
         // Fallback offline answers in Hindi
         answer = getHindiAnswer(question);
       }
