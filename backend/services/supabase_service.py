@@ -1,187 +1,117 @@
-"""
-Supabase Service — persistence layer for user data.
-
-Handles SRS card scheduling, attempt logging, study-plan storage,
-and weak-topic analytics via the Supabase REST API.
-"""
-
-from __future__ import annotations
-
 import os
-from datetime import date, datetime, timezone
-from typing import Any
-
-from dotenv import load_dotenv
+from datetime import date, timedelta
 from supabase import create_client, Client
 
-load_dotenv()
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
+SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
 
-# ── Singleton client ─────────────────────────────────────────────────
-_supabase_instance: Client | None = None
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 
+def fetch_due_cards(user_id: str, limit: int = 20) -> list[dict]:
+    try:
+        today_str = date.today().isoformat()
+        response = supabase.table("cards").select(
+            "id, subject, topic, front, back, ease_factor, interval_days, repetitions"
+        ).eq("user_id", user_id).lte("due_date", today_str).order("due_date").order("ease_factor").limit(limit).execute()
+        return response.data
+    except Exception as e:
+        print(f"Error in fetch_due_cards: {e}")
+        raise
 
-def get_supabase() -> Client:
-    """Return a singleton Supabase client.
+def update_card_after_review(card_id: str, ease_factor: float, interval_days: int, repetitions: int, due_date: str) -> dict:
+    try:
+        response = supabase.table("cards").update({
+            "ease_factor": ease_factor,
+            "interval_days": interval_days,
+            "repetitions": repetitions,
+            "due_date": due_date
+        }).eq("id", card_id).execute()
+        return response.data[0] if response.data else {}
+    except Exception as e:
+        print(f"Error in update_card_after_review: {e}")
+        raise
 
-    Reads ``SUPABASE_URL`` and ``SUPABASE_SERVICE_KEY`` from the
-    environment on first call.
+def log_attempt(user_id: str, card_id: str | None, subject: str, topic: str, correct: bool, score: int, time_seconds: float, source: str = "practice") -> dict:
+    try:
+        data = {
+            "user_id": user_id,
+            "card_id": card_id,
+            "subject": subject,
+            "topic": topic,
+            "correct": correct,
+            "score": score,
+            "time_seconds": time_seconds,
+            "source": source
+        }
+        response = supabase.table("attempts").insert(data).execute()
+        return response.data[0] if response.data else {}
+    except Exception as e:
+        print(f"Error in log_attempt: {e}")
+        raise
 
-    Returns:
-        A configured ``supabase.Client``.
-    """
-    global _supabase_instance
-    if _supabase_instance is None:
-        url: str = os.environ["SUPABASE_URL"]
-        key: str = os.environ["SUPABASE_SERVICE_KEY"]
-        _supabase_instance = create_client(url, key)
-    return _supabase_instance
+def save_daily_plan(user_id: str, plan_date: str, plan_json: list, total_minutes: int) -> dict:
+    try:
+        data = {
+            "user_id": user_id,
+            "plan_date": plan_date,
+            "plan_json": plan_json,
+            "total_minutes": total_minutes
+        }
+        response = supabase.table("daily_plans").upsert(data, on_conflict="user_id,plan_date").execute()
+        return response.data[0] if response.data else {}
+    except Exception as e:
+        print(f"Error in save_daily_plan: {e}")
+        raise
 
+def get_weak_topics(user_id: str, limit: int = 10) -> list[dict]:
+    try:
+        response = supabase.table("weak_topics").select(
+            "subject, topic, accuracy, attempts_count"
+        ).eq("user_id", user_id).order("accuracy").limit(limit).execute()
+        return response.data
+    except Exception as e:
+        print(f"Error in get_weak_topics: {e}")
+        raise
 
-# ── SRS helpers ──────────────────────────────────────────────────────
-def fetch_due_cards(user_id: str) -> list[dict[str, Any]]:
-    """Fetch flashcards whose next review date is today or earlier.
+def get_user_stats(user_id: str) -> dict:
+    try:
+        today_str = date.today().isoformat()
+        
+        due_res = supabase.table("cards").select("id", count="exact").eq("user_id", user_id).lte("due_date", today_str).execute()
+        cards_due_today = due_res.count if due_res.count is not None else (len(due_res.data) if due_res.data else 0)
+        
+        total_res = supabase.table("cards").select("id", count="exact").eq("user_id", user_id).execute()
+        total_cards = total_res.count if total_res.count is not None else (len(total_res.data) if total_res.data else 0)
+        
+        streak_res = supabase.table("micro_streaks").select("current_streak").eq("user_id", user_id).execute()
+        streak = streak_res.data[0].get("current_streak", 0) if streak_res.data else 0
+        
+        week_ago_str = (date.today() - timedelta(days=7)).isoformat()
+        plans_res = supabase.table("daily_plans").select("id", count="exact").eq("user_id", user_id).gte("plan_date", week_ago_str).execute()
+        plans_this_week = plans_res.count if plans_res.count is not None else (len(plans_res.data) if plans_res.data else 0)
+        
+        return {
+            "cards_due_today": cards_due_today,
+            "total_cards": total_cards,
+            "streak": streak,
+            "plans_this_week": plans_this_week
+        }
+    except Exception as e:
+        print(f"Error in get_user_stats: {e}")
+        raise
 
-    Args:
-        user_id: UUID of the learner.
-
-    Returns:
-        A list of card rows (dicts) that are due for review.
-    """
-    today_iso: str = date.today().isoformat()
-    response = (
-        get_supabase()
-        .table("cards")
-        .select("*")
-        .eq("user_id", user_id)
-        .lte("next_review", today_iso)
-        .execute()
-    )
-    return response.data
-
-
-def update_card_after_review(
-    card_id: str,
-    ease_factor: float,
-    interval_days: int,
-) -> dict[str, Any]:
-    """Persist updated SM-2 parameters for a card after review.
-
-    Args:
-        card_id: UUID of the card.
-        ease_factor: New ease factor (≥ 1.3).
-        interval_days: Days until next review.
-
-    Returns:
-        The updated card row.
-    """
-    next_review: str = (
-        date.today().__class__.fromordinal(
-            date.today().toordinal() + interval_days
-        ).isoformat()
-    )
-    response = (
-        get_supabase()
-        .table("cards")
-        .update(
-            {
-                "ease_factor": ease_factor,
-                "interval_days": interval_days,
-                "next_review": next_review,
-            }
-        )
-        .eq("id", card_id)
-        .execute()
-    )
-    return response.data
-
-
-# ── Attempt logging ──────────────────────────────────────────────────
-def log_attempt(
-    user_id: str,
-    card_id: str,
-    score: int,
-    time_seconds: int,
-) -> dict[str, Any]:
-    """Record a single review attempt for analytics.
-
-    Args:
-        user_id: UUID of the learner.
-        card_id: UUID of the practiced card.
-        score: Self-reported recall score (0-5).
-        time_seconds: Time spent on this attempt in seconds.
-
-    Returns:
-        The inserted attempt row.
-    """
-    response = (
-        get_supabase()
-        .table("attempts")
-        .insert(
-            {
-                "user_id": user_id,
-                "card_id": card_id,
-                "score": score,
-                "time_seconds": time_seconds,
-                "created_at": datetime.now(timezone.utc).isoformat(),
-            }
-        )
-        .execute()
-    )
-    return response.data
-
-
-# ── Planner helpers ──────────────────────────────────────────────────
-def save_daily_plan(
-    user_id: str,
-    plan_date: str,
-    plan_json: dict[str, Any],
-) -> dict[str, Any]:
-    """Upsert a daily study plan for the given user and date.
-
-    Args:
-        user_id: UUID of the learner.
-        plan_date: ISO date string (``YYYY-MM-DD``).
-        plan_json: Structured plan payload generated by the AI planner.
-
-    Returns:
-        The upserted plan row.
-    """
-    response = (
-        get_supabase()
-        .table("daily_plans")
-        .upsert(
-            {
-                "user_id": user_id,
-                "plan_date": plan_date,
-                "plan": plan_json,
-            }
-        )
-        .execute()
-    )
-    return response.data
-
-
-# ── Analytics ────────────────────────────────────────────────────────
-def get_weak_topics(user_id: str, limit: int = 5) -> list[dict[str, Any]]:
-    """Return the topics where the user scores lowest on average.
-
-    Queries the ``topic_scores`` view which aggregates attempt data
-    by topic and computes an average score.
-
-    Args:
-        user_id: UUID of the learner.
-        limit: Maximum number of weak topics to return.
-
-    Returns:
-        A list of ``{topic, avg_score}`` dicts, ascending by score.
-    """
-    response = (
-        get_supabase()
-        .table("topic_scores")
-        .select("topic, avg_score")
-        .eq("user_id", user_id)
-        .order("avg_score", desc=False)
-        .limit(limit)
-        .execute()
-    )
-    return response.data
+def upsert_weak_topic(user_id: str, subject: str, topic: str, accuracy: float, avg_time_sec: float, attempts_count: int) -> dict:
+    try:
+        data = {
+            "user_id": user_id,
+            "subject": subject,
+            "topic": topic,
+            "accuracy": accuracy,
+            "avg_time_sec": avg_time_sec,
+            "attempts_count": attempts_count
+        }
+        response = supabase.table("weak_topics").upsert(data, on_conflict="user_id,subject,topic").execute()
+        return response.data[0] if response.data else {}
+    except Exception as e:
+        print(f"Error in upsert_weak_topic: {e}")
+        raise
