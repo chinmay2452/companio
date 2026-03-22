@@ -12,8 +12,13 @@ const useAppStore = create((set, get) => ({
   // App State Slice
   activeSubject: 'All',
   examType: 'JEE',
+  isOnboarded: localStorage.getItem("onboarded") === "true",
   setActiveSubject: (activeSubject) => set({ activeSubject }),
   setExamType: (examType) => set({ examType }),
+  setOnboarded: (val) => {
+    localStorage.setItem("onboarded", val ? "true" : "false");
+    set({ isOnboarded: val });
+  },
 
   // Notification Slice
   notifications: [],

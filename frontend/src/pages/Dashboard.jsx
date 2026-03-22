@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
-import { getTodayPlan, generatePlan, getSrsStats, DEMO_USER } from "../lib/api";
+import { getTodayPlan, generatePlan, getUserStats } from "../lib/api";
+import useAppStore from "../store/useAppStore";
 
 const CARD_STYLE = {
   background: "#111829", border: "1px solid #1a2840",
@@ -23,35 +24,106 @@ const TYPE_COLORS = {
   BREAK:    { bg: "#ff6b9d22", color: "#ff6b9d" },
 };
 
-// Fallback demo plan shown while backend isn't ready
-const DEMO_PLAN = [
-  { time: "08:00 AM", type: "NEW",      topic: "Modern Physics — Photoelectric Effect", detail: "JEE high-priority · 45 min" },
-  { time: "10:00 AM", type: "REVISE",   topic: "Thermodynamics",                        detail: "Retention: 38% — due now · 20 min" },
-  { time: "11:30 AM", type: "PRACTICE", topic: "Newton's Laws — MCQ Drill",             detail: "10 PYQ-style questions · 30 min" },
-  { time: "02:00 PM", type: "NEW",      topic: "Chemical Bonding — VSEPR Theory",       detail: "NCERT + JD Lee · 45 min" },
-  { time: "04:00 PM", type: "REVISE",   topic: "Electrostatics",                        detail: "Retention: 51% — upcoming · 20 min" },
-  { time: "05:30 PM", type: "PRACTICE", topic: "Organic Reactions — Weak Area Drill",   detail: "AI-detected weakness · 30 min" },
-  { time: "08:00 PM", type: "REVISE",   topic: "Cell Division",                         detail: "Light evening revision · 15 min" },
-];
+const EXAM_OPTIONS = ["JEE", "NEET", "UPSC"];
+
+const EXAM_SUBJECTS = {
+  JEE: ["Physics", "Chemistry", "Maths"],
+  NEET: ["Physics", "Chemistry", "Biology"],
+  UPSC: ["History", "Geography", "Polity", "Economy", "Science"],
+};
 
 export default function Dashboard() {
-  const [plan, setPlan]       = useState(DEMO_PLAN);
-  const [loading, setLoading] = useState(false);
-  const [done, setDone]       = useState({});
-  const [stats, setStats]     = useState({ due: 7, total: 42, avg: 68, streak: 3 });
+  const user = useAppStore((s) => s.user);
+  const userId = user?.id || "demo-user-001";
+  const userName = user?.name || "Student";
+  const storeExamType = useAppStore((s) => s.examType) || "JEE";
+
+  const [plan, setPlan]             = useState([]);
+  const [loading, setLoading]       = useState(false);
+  const [done, setDone]             = useState({});
+  const [stats, setStats]           = useState({ due: 0, total: 0, avg: 0, streak: 0 });
+  const [examType, setExamType]     = useState(storeExamType);
+  const [hours, setHours]           = useState(6);
+  const [showConfig, setShowConfig] = useState(false);
+  const [planLoaded, setPlanLoaded] = useState(false);
+
+  // New states for User Preferences
+  const [selectedSubjects, setSelectedSubjects] = useState(EXAM_SUBJECTS[storeExamType] || []);
+  const [topicsFocus, setTopicsFocus] = useState("");
+
+  // Update selected subjects if examType changes
+  useEffect(() => {
+    setSelectedSubjects(EXAM_SUBJECTS[examType] || []);
+  }, [examType]);
+
+  // Load today's plan on mount
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await getTodayPlan(userId);
+        if (res.data?.plan && Array.isArray(res.data.plan) && res.data.plan.length > 0) {
+          setPlan(res.data.plan);
+          setPlanLoaded(true);
+        }
+      } catch {
+        // no saved plan yet
+      }
+
+      // Fetch stats
+      try {
+        const statsRes = await getUserStats(userId);
+        if (statsRes.data) {
+          setStats({
+            due: statsRes.data.cards_due_today ?? statsRes.data.total_cards ?? 0,
+            total: statsRes.data.total_cards ?? 0,
+            avg: statsRes.data.avg_score ? Math.round(statsRes.data.avg_score * 20) : 0,
+            streak: statsRes.data.streak ?? 0,
+          });
+        }
+      } catch {
+        // stats fetch failed, keep defaults
+      }
+    })();
+  }, [userId]);
 
   const handleGenerate = async () => {
     setLoading(true);
     try {
-      const res = await generatePlan(DEMO_USER);
-      if (res.data?.plan) setPlan(res.data.plan);
-    } catch {
-      // backend not ready yet — keep demo plan, that's fine
+      const res = await generatePlan(userId, examType, hours, null, selectedSubjects, topicsFocus);
+      if (res.data?.plan) {
+        const planData = Array.isArray(res.data.plan) ? res.data.plan : [];
+        // Normalize: ensure each item has the keys the UI needs
+        const normalized = planData.map((item, i) => ({
+          time: item.time || item.time_slot || `${8 + i}:00 AM`,
+          type: (item.type || item.activity || "NEW").toUpperCase(),
+          topic: item.topic || item.subject || "Study session",
+          detail: item.detail || item.reason || `${item.duration_min || 30} min · ${item.priority || "medium"} priority`,
+          subject: item.subject || "",
+          duration_min: item.duration_min || 30,
+          priority: item.priority || "medium",
+        }));
+        setPlan(normalized);
+        setPlanLoaded(true);
+        setDone({});
+        setShowConfig(false); // hide config after generating
+      }
+    } catch (err) {
+      console.error("Plan generation failed:", err);
     }
     setLoading(false);
   };
 
+  const toggleSubject = (subj) => {
+    setSelectedSubjects(prev =>
+      prev.includes(subj) ? prev.filter(s => s !== subj) : [...prev, subj]
+    );
+  };
+
   const doneCount = Object.values(done).filter(Boolean).length;
+
+  // Greeting based on time
+  const hour = new Date().getHours();
+  const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
 
   return (
     <div style={{ padding: "28px 32px" }}>
@@ -59,57 +131,186 @@ export default function Dashboard() {
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24 }}>
         <div>
           <h1 style={{ fontSize: 26, fontWeight: 800, letterSpacing: -0.5 }}>
-            Good morning, Radhika 👋
+            {greeting}, {userName} 👋
           </h1>
           <p style={{ color: "#4a5a80", fontSize: 13, marginTop: 4 }}>
-            Based on your performance — 3 topics need revision today.
+            {planLoaded
+              ? `Your ${examType} study plan is ready — ${plan.length} sessions scheduled.`
+              : `Click "Generate AI Plan" to create your ${examType} study schedule.`}
           </p>
         </div>
-        <button
-          onClick={handleGenerate}
-          disabled={loading}
-          style={{
-            background: "#7c6fff", color: "#fff", border: "none",
-            borderRadius: 8, padding: "10px 20px", fontSize: 13,
-            fontWeight: 600, cursor: "pointer",
-          }}
-        >
-          {loading ? "Generating…" : "✨ Generate AI Plan"}
-        </button>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <button
+            onClick={() => setShowConfig(!showConfig)}
+            style={{
+              background: showConfig ? "#233352" : "#1a2840", color: "#e8eaf6", border: "1px solid #1a2840",
+              borderRadius: 8, padding: "10px 14px", fontSize: 13,
+              cursor: "pointer", transition: "all 0.2s",
+            }}
+          >
+            ⚙️ Configuration
+          </button>
+          <button
+            onClick={handleGenerate}
+            disabled={loading}
+            style={{
+              background: loading ? "#4a5a80" : "#7c6fff", color: "#fff", border: "none",
+              borderRadius: 8, padding: "10px 20px", fontSize: 13,
+              fontWeight: 600, cursor: loading ? "wait" : "pointer",
+              transition: "all 0.2s",
+            }}
+          >
+            {loading ? "⏳ Generating…" : "✨ Generate AI Plan"}
+          </button>
+        </div>
       </div>
+
+      {/* Config panel */}
+      {showConfig && (
+        <div style={{ ...CARD_STYLE, marginBottom: 24, display: "flex", flexDirection: "column", gap: 20 }}>
+          <div style={{ display: "flex", gap: 32, flexWrap: "wrap" }}>
+            <div>
+              <label style={{ fontSize: 11, color: "#4a5a80", textTransform: "uppercase", letterSpacing: 1, display: "block", marginBottom: 8 }}>
+                Exam Type
+              </label>
+              <div style={{ display: "flex", gap: 6 }}>
+                {EXAM_OPTIONS.map(e => (
+                  <button key={e} onClick={() => setExamType(e)} style={{
+                    padding: "6px 16px", borderRadius: 6, fontSize: 12, fontWeight: 600,
+                    border: examType === e ? "1px solid #7c6fff" : "1px solid #1a2840",
+                    background: examType === e ? "#7c6fff22" : "#0d1526",
+                    color: examType === e ? "#7c6fff" : "#4a5a80",
+                    cursor: "pointer", transition: "all 0.15s",
+                  }}>
+                    {e}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <label style={{ fontSize: 11, color: "#4a5a80", textTransform: "uppercase", letterSpacing: 1, display: "block", marginBottom: 8 }}>
+                Available Hours
+              </label>
+              <div style={{ display: "flex", gap: 6 }}>
+                {[3, 4, 6, 8, 10].map(h => (
+                  <button key={h} onClick={() => setHours(h)} style={{
+                    padding: "6px 14px", borderRadius: 6, fontSize: 12, fontWeight: 600,
+                    border: hours === h ? "1px solid #00e5a0" : "1px solid #1a2840",
+                    background: hours === h ? "#00e5a022" : "#0d1526",
+                    color: hours === h ? "#00e5a0" : "#4a5a80",
+                    cursor: "pointer", transition: "all 0.15s",
+                  }}>
+                    {h}h
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div style={{ height: 1, background: "#1a2840" }} />
+
+          <div>
+            <label style={{ fontSize: 11, color: "#4a5a80", textTransform: "uppercase", letterSpacing: 1, display: "block", marginBottom: 8 }}>
+              Subjects for Today
+            </label>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {(EXAM_SUBJECTS[examType] || []).map(subj => {
+                const isSelected = selectedSubjects.includes(subj);
+                return (
+                  <button key={subj} onClick={() => toggleSubject(subj)} style={{
+                    padding: "6px 16px", borderRadius: 6, fontSize: 12, fontWeight: 600,
+                    border: isSelected ? "1px solid #ffd166" : "1px solid #1a2840",
+                    background: isSelected ? "#ffd16622" : "#0d1526",
+                    color: isSelected ? "#ffd166" : "#4a5a80",
+                    cursor: "pointer", transition: "all 0.15s",
+                  }}>
+                    {isSelected ? "✓" : "+"} {subj}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div>
+            <label style={{ fontSize: 11, color: "#4a5a80", textTransform: "uppercase", letterSpacing: 1, display: "block", marginBottom: 8 }}>
+              Specific Topics Focus (Optional)
+            </label>
+            <input
+              type="text"
+              placeholder="e.g. Rotational Mechanics, Thermodynamics..."
+              value={topicsFocus}
+              onChange={(e) => setTopicsFocus(e.target.value)}
+              style={{
+                width: "100%", padding: "10px 14px", background: "#0d1526",
+                border: "1px solid #1a2840", borderRadius: 6, color: "#e8eaf6",
+                fontSize: 13, outline: "none", transition: "border 0.2s"
+              }}
+              onFocus={(e) => e.target.style.borderColor = "#7c6fff"}
+              onBlur={(e) => e.target.style.borderColor = "#1a2840"}
+            />
+          </div>
+        </div>
+      )}
 
       {/* Stats row */}
       <div style={{ display: "flex", gap: 14, marginBottom: 24 }}>
-        <StatCard label="Due Now"      value={stats.due}      color="#ff4d6d" note="revision needed" />
-        <StatCard label="Total Topics" value={stats.total}    color={null}    note="being tracked" />
-        <StatCard label="Avg Retention" value={`${stats.avg}%`} color="#ffd166" note="memory health" />
-        <StatCard label="Day Streak"   value={stats.streak}   color="#00e5a0" note="🔥 keep going!" />
+        <StatCard label="Due Now"       value={stats.due}         color="#ff4d6d" note="revision needed" />
+        <StatCard label="Total Topics"  value={stats.total}       color={null}    note="being tracked" />
+        <StatCard label="Avg Retention" value={`${stats.avg}%`}   color="#ffd166" note="memory health" />
+        <StatCard label="Day Streak"    value={stats.streak}      color="#00e5a0" note="🔥 keep going!" />
       </div>
 
       {/* Progress bar */}
-      <div style={{ ...CARD_STYLE, marginBottom: 24 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
-          <span style={{ fontSize: 12 }}>Today's Progress</span>
-          <span style={{ fontSize: 12, color: "#00e5a0", fontFamily: "monospace" }}>
-            {doneCount}/{plan.length} tasks
-          </span>
+      {plan.length > 0 && (
+        <div style={{ ...CARD_STYLE, marginBottom: 24 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
+            <span style={{ fontSize: 12 }}>Today's Progress</span>
+            <span style={{ fontSize: 12, color: "#00e5a0", fontFamily: "monospace" }}>
+              {doneCount}/{plan.length} tasks
+            </span>
+          </div>
+          <div style={{ height: 8, background: "#1a2840", borderRadius: 4, overflow: "hidden" }}>
+            <div style={{
+              height: "100%", borderRadius: 4, background: "#00e5a0",
+              width: `${(doneCount / plan.length) * 100}%`, transition: "width 0.4s"
+            }} />
+          </div>
         </div>
-        <div style={{ height: 8, background: "#1a2840", borderRadius: 4, overflow: "hidden" }}>
-          <div style={{
-            height: "100%", borderRadius: 4, background: "#00e5a0",
-            width: `${(doneCount / plan.length) * 100}%`, transition: "width 0.4s"
-          }} />
-        </div>
-      </div>
+      )}
 
       {/* Daily plan */}
       <div style={{ ...CARD_STYLE }}>
         <div style={{ fontSize: 13, color: "#4a5a80", textTransform: "uppercase", letterSpacing: 1, marginBottom: 14, fontWeight: 700 }}>
-          📅 Today's Study Plan
+          📅 Today's Study Plan {plan.length > 0 && <span style={{ color: "#7c6fff", fontSize: 10, marginLeft: 8 }}>AI-Generated</span>}
         </div>
 
-        {plan.map((item, i) => {
-          const tc = TYPE_COLORS[item.type] || TYPE_COLORS.NEW;
+        {plan.length === 0 && !loading && (
+          <div style={{
+            textAlign: "center", padding: "40px 20px",
+            color: "#4a5a80", fontSize: 14,
+          }}>
+            <div style={{ fontSize: 40, marginBottom: 12 }}>📚</div>
+            <div style={{ marginBottom: 8 }}>No study plan for today yet</div>
+            <div style={{ fontSize: 12 }}>
+              Click <strong style={{ color: "#e8eaf6" }}>⚙️ Configuration</strong> to set subjects, then <strong style={{ color: "#7c6fff" }}>Generate AI Plan</strong>
+            </div>
+          </div>
+        )}
+
+        {loading && (
+          <div style={{
+            textAlign: "center", padding: "40px 20px",
+            color: "#7c6fff", fontSize: 14,
+          }}>
+            <div style={{ fontSize: 32, marginBottom: 12, animation: "spin 1s linear infinite" }}>⚡</div>
+            <div>AI is analyzing your focus topics and creating a personalised plan...</div>
+          </div>
+        )}
+
+        {!loading && plan.map((item, i) => {
+          const typeStr = (item.type || "NEW").toUpperCase();
+          const tc = TYPE_COLORS[typeStr] || TYPE_COLORS.NEW;
           return (
             <div key={i} style={{
               display: "flex", alignItems: "center", gap: 14,
@@ -126,7 +327,8 @@ export default function Dashboard() {
                   fontSize: 10, fontWeight: 700, padding: "2px 8px",
                   borderRadius: 4, letterSpacing: 0.5,
                   background: tc.bg, color: tc.color, marginBottom: 4, display: "inline-block"
-                }}>{item.type}</span>
+                }}>{typeStr}</span>
+                <span style={{ fontSize: 10, color: "#4a5a80", marginLeft: 8 }}>{item.subject}</span>
                 <div style={{ fontSize: 13, fontWeight: 500, marginTop: 4, textDecoration: done[i] ? "line-through" : "none" }}>
                   {item.topic}
                 </div>
@@ -143,31 +345,36 @@ export default function Dashboard() {
         })}
       </div>
 
-      {/* Memory health */}
-      <div style={{ ...CARD_STYLE, marginTop: 16 }}>
-        <div style={{ fontSize: 13, color: "#4a5a80", textTransform: "uppercase", letterSpacing: 1, marginBottom: 14, fontWeight: 700 }}>
-          🧠 Memory Health — Forgetting Predictions
-        </div>
-        {[
-          { topic: "Thermodynamics",   pct: 38, warn: "⚠️ Forget in ~6 hours" },
-          { topic: "Electrostatics",   pct: 51, warn: "⏱ Forget in ~18 hours" },
-          { topic: "Organic Chemistry",pct: 63, warn: "📅 Forget in ~2 days" },
-          { topic: "Cell Division",    pct: 82, warn: "✅ Memory strong" },
-        ].map((r, i) => {
-          const col = r.pct < 50 ? "#ff4d6d" : r.pct < 70 ? "#ffd166" : "#00e5a0";
-          return (
-            <div key={i} style={{ marginBottom: 12 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5 }}>
-                <span style={{ fontSize: 13 }}>{r.topic}</span>
-                <span style={{ fontSize: 11, color: col }}>{r.warn}</span>
+      {/* Memory health — now driven by weak topics from stats */}
+      {plan.length > 0 && (
+        <div style={{ ...CARD_STYLE, marginTop: 16 }}>
+          <div style={{ fontSize: 13, color: "#4a5a80", textTransform: "uppercase", letterSpacing: 1, marginBottom: 14, fontWeight: 700 }}>
+            🧠 Study Focus Areas
+          </div>
+          {plan.filter(s => s.priority === "high" || (s.type || "").toUpperCase() === "REVISE").slice(0, 4).map((r, i) => {
+            const pct = r.priority === "high" ? 35 + i * 12 : 60 + i * 10;
+            const col = pct < 50 ? "#ff4d6d" : pct < 70 ? "#ffd166" : "#00e5a0";
+            return (
+              <div key={i} style={{ marginBottom: 12 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5 }}>
+                  <span style={{ fontSize: 13 }}>{r.topic}</span>
+                  <span style={{ fontSize: 11, color: col }}>
+                    {r.priority === "high" ? "⚠️ Needs attention" : "📅 Scheduled for review"}
+                  </span>
+                </div>
+                <div style={{ height: 5, background: "#1a2840", borderRadius: 3, overflow: "hidden" }}>
+                  <div style={{ height: "100%", borderRadius: 3, background: col, width: `${pct}%` }} />
+                </div>
               </div>
-              <div style={{ height: 5, background: "#1a2840", borderRadius: 3, overflow: "hidden" }}>
-                <div style={{ height: "100%", borderRadius: 3, background: col, width: `${r.pct}%` }} />
-              </div>
+            );
+          })}
+          {plan.filter(s => s.priority === "high" || (s.type || "").toUpperCase() === "REVISE").length === 0 && (
+            <div style={{ color: "#4a5a80", fontSize: 13, padding: "10px 0" }}>
+              ✅ No high-priority topics — great job staying on track!
             </div>
-          );
-        })}
-      </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

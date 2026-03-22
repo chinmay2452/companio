@@ -9,8 +9,15 @@ export const api = axios.create({
 });
 
 // ── Study Planner ──────────────────────────────────────────────────
-export const generatePlan = (userId) =>
-  api.post("/api/planner/generate", { user_id: userId });
+export const generatePlan = (userId, examType = "JEE", availableHours = 6, examDate = null, subjects = [], topicsFocus = "") =>
+  api.post("/api/planner/generate", {
+    user_id: userId,
+    exam_type: examType,
+    exam_date: examDate,
+    available_hours: availableHours,
+    subjects: subjects,
+    topics_focus: topicsFocus,
+  });
 
 export const getTodayPlan = (userId) =>
   api.get(`/api/planner/${userId}/today`);
@@ -46,7 +53,11 @@ export const askTutorHindi = (question, history = []) =>
 
 // ── Micro-Time ────────────────────────────────────────────────────
 export const getMicroSession = (userId, minutes) =>
-  api.post("/api/microtime/session", { user_id: userId, minutes });
+  api.post("/api/microtime/session/start", { user_id: userId, duration_minutes: minutes });
 
-// Demo user ID — replace with real Supabase auth later
+// ── User Stats ────────────────────────────────────────────────────
+export const getUserStats = (userId) =>
+  api.get(`/api/srs/stats/${userId}`);
+
+// Demo user ID — replaced at runtime by Supabase auth user
 export const DEMO_USER = "demo-user-001";

@@ -7,6 +7,8 @@ creating new cards, and retrieving study statistics.
 
 from __future__ import annotations
 
+from datetime import date, timedelta
+
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
@@ -16,6 +18,7 @@ from services.supabase_service import (
     update_card_after_review,
     log_attempt,
     get_supabase,
+    get_user_stats,
 )
 
 router = APIRouter()
@@ -27,7 +30,7 @@ class ReviewRequest(BaseModel):
     """Payload for submitting a card review."""
     user_id: str
     card_id: str
-    score: int = Field(..., ge=0, le=5, description="Recall quality 0-5")
+    score: int = Field(3, ge=0, le=5, description="Recall quality 0-5")
     time_seconds: int = 0
 
 
@@ -41,7 +44,7 @@ class CardCreateRequest(BaseModel):
 # ── Endpoints ────────────────────────────────────────────────────────
 
 @router.get("/due/{user_id}")
-async def get_due_cards(user_id: str) -> dict:
+async def get_due_cards_endpoint(user_id: str) -> dict:
     """Return all flashcards due for review today."""
     try:
         cards = fetch_due_cards(user_id)
@@ -52,17 +55,12 @@ async def get_due_cards(user_id: str) -> dict:
 
 @router.post("/review")
 async def submit_review(req: ReviewRequest) -> dict:
-    """Process a single card review using the SM-2 algorithm.
-
-    Fetches the card's current ease_factor and interval_days from
-    Supabase, runs SM-2, then persists updated scheduling data.
-    """
+    """Process a single card review using the SM-2 algorithm."""
     try:
-        # Fetch current card data from Supabase
         card_resp = (
             get_supabase()
             .table("cards")
-            .select("ease_factor, interval_days")
+            .select("ease_factor, interval_days, repetitions, subject, topic")
             .eq("id", req.card_id)
             .single()
             .execute()
@@ -73,27 +71,49 @@ async def submit_review(req: ReviewRequest) -> dict:
 
     ease_factor: float = card.get("ease_factor", 2.5)
     interval_days: int = card.get("interval_days", 1)
+    repetitions: int = card.get("repetitions", 0)
+    subject: str = card.get("subject", "Unknown")
+    topic: str = card.get("topic", "Unknown")
 
     # Run SM-2 algorithm
     new_ef, new_interval = sm2(ease_factor, interval_days, req.score)
 
-    # Persist updates
+    # Calculate new repetitions
+    if req.score >= 3:
+        new_reps = repetitions + 1
+    else:
+        new_reps = 0
+
+    # Calculate new due date
+    new_due_date = (date.today() + timedelta(days=new_interval)).isoformat()
+
+    # Persist updates (matches updated supabase_service signature)
     try:
-        update_card_after_review(req.card_id, new_ef, new_interval)
-        log_attempt(req.user_id, req.card_id, req.score, req.time_seconds)
+        update_card_after_review(req.card_id, new_ef, new_interval, new_reps, new_due_date)
+        log_attempt(
+            user_id=req.user_id,
+            card_id=req.card_id,
+            subject=subject,
+            topic=topic,
+            correct=req.score >= 3,
+            score=req.score,
+            time_seconds=req.time_seconds,
+            source="srs",
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to update card: {e}")
 
     return {
         "new_ease_factor": new_ef,
         "new_interval_days": new_interval,
-        "next_review": next_review_date(new_interval),
+        "next_review": new_due_date,
     }
 
 
 @router.post("/cards")
 async def create_card(req: CardCreateRequest) -> dict:
     """Insert a new flashcard into the Supabase cards table."""
+    today_iso = date.today().isoformat()
     try:
         response = (
             get_supabase()
@@ -103,9 +123,12 @@ async def create_card(req: CardCreateRequest) -> dict:
                     "user_id": req.user_id,
                     "topic": req.topic,
                     "subject": req.subject,
+                    "front": f"What is a key concept in {req.topic}?",
+                    "back": f"Explain the fundamentals of {req.topic} in {req.subject}.",
                     "ease_factor": 2.5,
                     "interval_days": 1,
-                    "next_review": next_review_date(0),  # due today
+                    "repetitions": 0,
+                    "next_review": today_iso,
                 }
             )
             .execute()
@@ -117,54 +140,9 @@ async def create_card(req: CardCreateRequest) -> dict:
 
 @router.get("/stats/{user_id}")
 async def get_stats(user_id: str) -> dict:
-    """Return aggregated study statistics for a user.
-
-    - total_cards: count of all cards
-    - cards_by_subject: cards grouped by subject with counts
-    - avg_score: average score across all attempts
-    """
+    """Return aggregated study statistics for a user."""
     try:
-        # Total cards
-        cards_resp = (
-            get_supabase()
-            .table("cards")
-            .select("id, subject")
-            .eq("user_id", user_id)
-            .execute()
-        )
-        cards = cards_resp.data
-        total_cards = len(cards)
-
-        # Group by subject
-        subject_counts: dict[str, int] = {}
-        for card in cards:
-            subj = card.get("subject", "unknown")
-            subject_counts[subj] = subject_counts.get(subj, 0) + 1
-        cards_by_subject = [
-            {"subject": s, "count": c} for s, c in subject_counts.items()
-        ]
-
-        # Average score from attempts
-        attempts_resp = (
-            get_supabase()
-            .table("attempts")
-            .select("score")
-            .eq("user_id", user_id)
-            .execute()
-        )
-        attempts = attempts_resp.data
-        if attempts:
-            avg_score = round(
-                sum(a["score"] for a in attempts) / len(attempts), 2
-            )
-        else:
-            avg_score = 0.0
-
+        stats = get_user_stats(user_id)
+        return stats
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch stats: {e}")
-
-    return {
-        "total_cards": total_cards,
-        "avg_score": avg_score,
-        "cards_by_subject": cards_by_subject,
-    }

@@ -5,6 +5,8 @@ import TutorChat from "./pages/TutorChat";
 import Revisions from "./pages/Revisions";
 import MicroTimePage from "./pages/MicroTimePage";
 import VoiceHindiTutor from "./components/voice/VoiceHindiTutor";
+import Onboarding from "./pages/Onboarding";
+import useAppStore from "./store/useAppStore";
 
 const NAV = [
   { id: "dashboard",  label: "Dashboard",     icon: "◈" },
@@ -17,6 +19,13 @@ const NAV = [
 
 export default function App() {
   const [tab, setTab] = useState("dashboard");
+  const isOnboarded = useAppStore(s => s.isOnboarded);
+  const examType = useAppStore(s => s.examType) || "JEE";
+  const setOnboarded = useAppStore(s => s.setOnboarded);
+
+  if (!isOnboarded) {
+    return <Onboarding onComplete={() => setOnboarded(true)} />;
+  }
 
   return (
     <div style={{ display: "flex", minHeight: "100vh", background: "#0a0f1e" }}>
@@ -63,7 +72,7 @@ export default function App() {
         <div style={{ padding: "16px 20px", borderTop: "1px solid #1a2840" }}>
           <div style={{ background: "#131e35", border: "1px solid #1a2840", borderRadius: 8, padding: "10px 14px" }}>
             <div style={{ fontSize: 10, color: "#4a5a80", textTransform: "uppercase", letterSpacing: 1 }}>Target</div>
-            <div style={{ fontWeight: 700, fontSize: 16, marginTop: 2 }}>JEE 2026</div>
+            <div style={{ fontWeight: 700, fontSize: 16, marginTop: 2 }}>{examType} 2026</div>
             <div style={{ fontSize: 11, color: "#ff6b9d", marginTop: 2 }}>📅 127 days left</div>
           </div>
         </div>
