@@ -1,59 +1,14 @@
 import { create } from 'zustand';
 import { supabase } from '../lib/supabaseClient';
 
-export type User = {
-  id: string;
-  name?: string;
-  exam_type?: string;
-  exam_date?: string;
-};
-
-export type NotificationType = 'success' | 'error' | 'info' | 'warning';
-
-export type Notification = {
-  id: number;
-  type: NotificationType;
-  message: string;
-  duration: number;
-};
-
-export type ActiveSubject = 'All' | 'Physics' | 'Chemistry' | 'Biology' | 'Maths';
-export type ExamType = 'JEE' | 'NEET' | 'UPSC';
-
-interface AppStore {
-  // Auth Slice
-  user: User | null;
-  session: any | null;
-  setUser: (user: User | null) => void;
-  setSession: (session: any | null) => void;
-  clearAuth: () => void;
-  
-  // App State Slice
-  activeSubject: ActiveSubject;
-  examType: ExamType;
-  setActiveSubject: (subject: ActiveSubject) => void;
-  setExamType: (type: ExamType) => void;
-
-  // Notification Slice
-  notifications: Notification[];
-  addNotification: (type: NotificationType, message: string, duration?: number) => void;
-  removeNotification: (id: number) => void;
-
-  // Offline Slice
-  isOnline: boolean;
-  pendingSync: number;
-  setOnline: (isOnline: boolean) => void;
-  setPendingSync: (count: number) => void;
-}
-
-const useAppStore = create<AppStore>((set, get) => ({
+const useAppStore = create((set, get) => ({
   // Auth Slice
   user: null,
   session: null,
   setUser: (user) => set({ user }),
   setSession: (session) => set({ session }),
   clearAuth: () => set({ user: null, session: null }),
-
+  
   // App State Slice
   activeSubject: 'All',
   examType: 'JEE',
@@ -124,7 +79,6 @@ if (typeof window !== 'undefined') {
 
 export default useAppStore;
 
-// Export typed selectors as requested
 export const useUser = () => useAppStore((s) => s.user);
 export const useNotifications = () => useAppStore((s) => s.notifications);
 export const useIsOnline = () => useAppStore((s) => s.isOnline);

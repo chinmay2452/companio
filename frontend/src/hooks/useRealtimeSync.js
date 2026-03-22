@@ -1,14 +1,10 @@
 import { useEffect, useState, useCallback } from 'react';
 import { supabase } from '../lib/supabaseClient';
 
-export function useRealtimeTable<T extends { id: string }>(
-  tableName: string,
-  userId: string,
-  initialFetch: () => Promise<T[]>
-) {
-  const [data, setData] = useState<T[]>([]);
+export function useRealtimeTable(tableName, userId, initialFetch) {
+  const [data, setData] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<Error | null>(null);
+  const [error, setError] = useState(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -42,11 +38,11 @@ export function useRealtimeTable<T extends { id: string }>(
           if (payload.eventType === 'INSERT') {
             setData((prev) => {
               if (prev.some(item => item.id === payload.new.id)) return prev;
-              return [...prev, payload.new as T];
+              return [...prev, payload.new];
             });
           } else if (payload.eventType === 'UPDATE') {
             setData((prev) =>
-              prev.map((item) => (item.id === payload.new.id ? (payload.new as T) : item))
+              prev.map((item) => (item.id === payload.new.id ? payload.new : item))
             );
           } else if (payload.eventType === 'DELETE') {
             setData((prev) => prev.filter((item) => item.id !== payload.old.id));
@@ -64,14 +60,14 @@ export function useRealtimeTable<T extends { id: string }>(
   return { data, loading, error };
 }
 
-export function useLiveDueCards(userId: string) {
+export function useLiveDueCards(userId) {
   const fetchDueCards = useCallback(async () => {
     const res = await fetch(`/api/srs/due/${userId}`);
     if (!res.ok) throw new Error('Failed to fetch due cards');
     return res.json();
   }, [userId]);
 
-  const { data, loading, error } = useRealtimeTable<any>('cards', userId, fetchDueCards);
+  const { data, loading, error } = useRealtimeTable('cards', userId, fetchDueCards);
 
   const dueCards = data.filter((card) => {
     if (!card.due_date) return true;
@@ -82,7 +78,7 @@ export function useLiveDueCards(userId: string) {
   return { dueCards, loading, error };
 }
 
-export function useLiveDailyPlan(userId: string) {
+export function useLiveDailyPlan(userId) {
   const fetchPlan = useCallback(async () => {
     const res = await fetch(`/api/planner/${userId}/today`);
     if (!res.ok) {
@@ -94,7 +90,7 @@ export function useLiveDailyPlan(userId: string) {
     return json.id ? [json] : []; 
   }, [userId]);
 
-  const { data, loading, error } = useRealtimeTable<any>('daily_plans', userId, fetchPlan);
+  const { data, loading, error } = useRealtimeTable('daily_plans', userId, fetchPlan);
 
   const todayStr = new Date().toISOString().split('T')[0];
   const todaysRow = data.find((row) => row.plan_date === todayStr) || data[0];
@@ -103,20 +99,15 @@ export function useLiveDailyPlan(userId: string) {
   return { plan, loading, error };
 }
 
-export function useLiveStats(userId: string) {
-  const [stats, setStats] = useState<{
-    cardsDue: number;
-    totalCards: number;
-    streak: number;
-    weakTopics: any[];
-  }>({
+export function useLiveStats(userId) {
+  const [stats, setStats] = useState({
     cardsDue: 0,
     totalCards: 0,
     streak: 0,
     weakTopics: []
   });
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<Error | null>(null);
+  const [error, setError] = useState(null);
 
   const fetchStats = useCallback(async () => {
     try {
@@ -125,18 +116,20 @@ export function useLiveStats(userId: string) {
       const json = await res.json();
       setStats(json);
       setError(null);
-    } catch (err: any) {
+    } catch (err) {
       setError(err);
     } finally {
-      if (loading) setLoading(false);
+      setLoading(false);
     }
-  }, [userId, loading]);
+  }, [userId]);
 
   useEffect(() => {
     let isMounted = true;
     
+    // Initial fetch
     fetchStats();
 
+    // Re-fetch on cards or attempts tables changing
     const channelCards = supabase.channel(`stats_cards_${userId}`)
       .on(
         'postgres_changes',
