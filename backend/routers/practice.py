@@ -244,11 +244,10 @@ async def submit_answer(req: SubmitRequest) -> dict:
 async def get_weak_areas(user_id: str) -> dict:
     """Return the user's weakest topics sorted by average score.
 
-    Joins the ``attempts`` and ``cards`` tables, groups by
-    topic + subject, and returns the bottom-10 topics.
+    Groups attempts by topic + subject and returns the bottom-10 topics.
     """
     try:
-        # Fetch all attempts for this user with card details
+        # Fetch all attempts for this user with their subject and topic
         attempts_resp = (
             get_supabase()
             .table("attempts")
@@ -267,11 +266,12 @@ async def get_weak_areas(user_id: str) -> dict:
     topic_stats: dict[str, dict] = {}
     for attempt in attempts:
         card_info = attempt.get("cards") or {}
-        # Prioritize the topic/subject logged directly on the attempt
-        topic = attempt.get("topic") or card_info.get("topic", "unknown")
-        subject = attempt.get("subject") or card_info.get("subject", "unknown")
+        # Prioritize the topic/subject logged directly on the attempt, fallback to card
+        topic = str(attempt.get("topic") or card_info.get("topic") or "unknown").strip()
+        subject = str(attempt.get("subject") or card_info.get("subject") or "unknown").strip()
         
-        if not topic or topic.lower() in ("unknown", "uncategorized", ""):
+        # Skip malformed data
+        if not topic or topic.lower() in ("unknown", "uncategorized", "") or subject.lower() in ("unknown", "uncategorized", ""):
             continue
             
         key = f"{topic}||{subject}"

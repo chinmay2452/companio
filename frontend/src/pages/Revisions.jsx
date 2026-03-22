@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
-import { getDueCards, getAllCards, createCard, deleteCard, clearAllData, reviewCard, DEMO_USER } from "../lib/api";
+import { getDueCards, getAllCards, createCard, deleteCard, clearAllData, reviewCard } from "../lib/api";
+import useAppStore from "../store/useAppStore";
 
 const SUBJECTS = ["Physics", "Chemistry", "Biology", "Maths", "History", "Polity"];
 
@@ -12,6 +13,9 @@ const SCORES = [
 ];
 
 export default function Revisions() {
+  const user = useAppStore(s => s.user);
+  const userId = user?.id;
+
   const [tab, setTab] = useState("review"); // "review" | "manage"
 
   // ── Review state ──────────────────────────────────────
@@ -35,7 +39,7 @@ export default function Revisions() {
   const loadDueCards = async () => {
     setReviewLoading(true);
     try {
-      const res = await getDueCards(DEMO_USER);
+      const res = await getDueCards(userId);
       setDueCards(res.data?.due_cards || []);
     } catch { setDueCards([]); }
     setIdx(0); setFlipped(false);
@@ -45,7 +49,7 @@ export default function Revisions() {
   const loadAllCards = async () => {
     setManageLoading(true);
     try {
-      const res = await getAllCards(DEMO_USER);
+      const res = await getAllCards(userId);
       setAllCards(res.data?.cards || []);
     } catch { setAllCards([]); }
     setManageLoading(false);
@@ -58,7 +62,7 @@ export default function Revisions() {
   const progress = dueCards.length > 0 ? Math.round((idx / dueCards.length) * 100) : 0;
 
   const handleScore = async (quality) => {
-    try { await reviewCard(DEMO_USER, card.id, quality); } catch {}
+    try { await reviewCard(userId, card.id, quality); } catch {}
     setFlipped(false);
     if (idx + 1 >= dueCards.length) {
       setIdx(idx + 1); // triggers "all done" state
@@ -72,7 +76,7 @@ export default function Revisions() {
     if (!formTopic || !formFront || !formBack) return;
     setSaving(true);
     try {
-      await createCard(DEMO_USER, formSubject, formTopic, formFront, formBack);
+      await createCard(userId, formSubject, formTopic, formFront, formBack);
       setFormTopic(""); setFormFront(""); setFormBack("");
       setShowForm(false);
       loadAllCards();
@@ -91,7 +95,7 @@ export default function Revisions() {
 
   const handleClearAll = async () => {
     try {
-      await clearAllData(DEMO_USER);
+      await clearAllData(userId);
       setAllCards([]);
       setDueCards([]);
       setIdx(0);

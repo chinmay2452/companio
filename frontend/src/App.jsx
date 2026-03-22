@@ -6,7 +6,9 @@ import Revisions from "./pages/Revisions";
 import MicroTimePage from "./pages/MicroTimePage";
 import VoiceHindiTutor from "./components/voice/VoiceHindiTutor";
 import Onboarding from "./pages/Onboarding";
+import AuthPage from "./pages/AuthPage";
 import useAppStore from "./store/useAppStore";
+import { supabase } from "./lib/supabaseClient";
 
 const NAV = [
   { id: "dashboard",  label: "Dashboard",     icon: "◈" },
@@ -19,13 +21,27 @@ const NAV = [
 
 export default function App() {
   const [tab, setTab] = useState("dashboard");
+  const session = useAppStore(s => s.session);
+  const user = useAppStore(s => s.user);
   const isOnboarded = useAppStore(s => s.isOnboarded);
   const examType = useAppStore(s => s.examType) || "JEE";
   const setOnboarded = useAppStore(s => s.setOnboarded);
 
+  // Gate 1: Must be authenticated
+  if (!session) {
+    return <AuthPage />;
+  }
+
+  // Gate 2: Must complete onboarding
   if (!isOnboarded) {
     return <Onboarding onComplete={() => setOnboarded(true)} />;
   }
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    useAppStore.getState().clearAuth();
+    useAppStore.getState().setOnboarded(false);
+  };
 
   return (
     <div style={{ display: "flex", minHeight: "100vh", background: "#0a0f1e" }}>
@@ -68,12 +84,43 @@ export default function App() {
           ))}
         </nav>
 
-        {/* Exam badge */}
-        <div style={{ padding: "16px 20px", borderTop: "1px solid #1a2840" }}>
+        {/* User + Logout */}
+        <div style={{ padding: "12px 20px", borderTop: "1px solid #1a2840" }}>
           <div style={{ background: "#131e35", border: "1px solid #1a2840", borderRadius: 8, padding: "10px 14px" }}>
             <div style={{ fontSize: 10, color: "#4a5a80", textTransform: "uppercase", letterSpacing: 1 }}>Target</div>
             <div style={{ fontWeight: 700, fontSize: 16, marginTop: 2 }}>{examType} 2026</div>
             <div style={{ fontSize: 11, color: "#ff6b9d", marginTop: 2 }}>📅 127 days left</div>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10, padding: "8px 0" }}>
+            <div style={{
+              width: 28, height: 28, borderRadius: "50%",
+              background: "linear-gradient(135deg, #7c6fff, #5a4fcf)",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              fontSize: 12, fontWeight: 700, color: "#fff"
+            }}>
+              {(user?.name || "U")[0].toUpperCase()}
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 12, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                {user?.name || "Student"}
+              </div>
+              <div style={{ fontSize: 10, color: "#4a5a80", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                {session?.user?.email || ""}
+              </div>
+            </div>
+            <button
+              onClick={handleLogout}
+              title="Sign out"
+              style={{
+                background: "none", border: "none", color: "#4a5a80",
+                cursor: "pointer", fontSize: 14, padding: "4px",
+                borderRadius: 4, transition: "color 0.2s"
+              }}
+              onMouseEnter={e => e.target.style.color = "#ff4d6d"}
+              onMouseLeave={e => e.target.style.color = "#4a5a80"}
+            >
+              ⎋
+            </button>
           </div>
         </div>
       </div>
