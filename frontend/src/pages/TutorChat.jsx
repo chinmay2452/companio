@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { api } from "../lib/api";
+import { useUser } from "../store/useAppStore";
 
 const SUGGESTIONS = [
   "Explain Newton's second law of motion",
@@ -10,6 +11,7 @@ const SUGGESTIONS = [
 ];
 
 export default function TutorChat() {
+  const user = useUser();
   const [msgs,    setMsgs]    = useState([
     { role:"ai", text:"Namaste! 🙏 I'm your Companio AI Tutor. Ask me anything — from Newton's Laws to organic reactions. Every answer is grounded in NCERT textbooks, not hallucinated.\n\nYou can also switch to Hindi mode below!" }
   ]);
@@ -31,7 +33,7 @@ export default function TutorChat() {
 
     // Try SSE streaming endpoint first
     try {
-      const res = await api.post("/api/tutor/ask", { question: q, subject });
+      const res = await api.post("/api/tutor/ask", { question: q, subject, user_id: user?.id || "demo" });
       const answer = res.data?.answer || res.data?.response || "I found relevant information in NCERT sources. " + q;
       setMsgs(p => [...p, { role:"ai", text:answer }]);
     } catch {
