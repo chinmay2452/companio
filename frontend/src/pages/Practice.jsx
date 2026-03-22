@@ -1,533 +1,635 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { generateQuestions, submitAnswer, getWeakAreas } from "../lib/api";
 import useAppStore from "../store/useAppStore";
+
+/* ── Design tokens ─────────────────────────────────────────────── */
+const C = {
+  bg:         "#060e1f",
+  surface:    "#0f192e",
+  surfaceHi:  "#151f36",
+  surfaceTop: "#1a253e",
+  primary:    "#aba3ff",
+  primaryDim: "#6d5fef",
+  secondary:  "#23eea8",
+  tertiary:   "#ffdb8f",
+  error:      "#ff6e84",
+  textPrimary:"#dee5fd",
+  textMuted:  "#a3abc1",
+  outline:    "#40485b",
+};
+
+const glass = (extra = {}) => ({
+  background: "rgba(15, 25, 46, 0.85)",
+  backdropFilter: "blur(20px)",
+  WebkitBackdropFilter: "blur(20px)",
+  border: `1px solid rgba(64,72,91,0.3)`,
+  borderRadius: 14,
+  ...extra,
+});
 
 const SUBJECTS = ["Physics", "Chemistry", "Biology", "Maths", "History", "Polity"];
 const DIFFICULTIES = ["Easy", "Medium", "Hard"];
 
+/* ── Skeleton shimmer ──────────────────────────────────────────── */
+function Sk({ w = "100%", h = 18, r = 6 }) {
+  return (
+    <div style={{
+      width: w, height: h, borderRadius: r, flexShrink: 0,
+      background: `linear-gradient(90deg,${C.surface} 25%,${C.surfaceHi} 50%,${C.surface} 75%)`,
+      backgroundSize: "200% 100%", animation: "nebula-shimmer 1.6s infinite",
+    }} />
+  );
+}
+
+/* ── Stat gradient card ─────────────────────────────────────────── */
+function StatCard({ icon, label, value, sub, glow }) {
+  return (
+    <div style={{
+      ...glass({ padding: "14px 16px", flex: 1 }),
+      boxShadow: `0 0 20px ${glow}18`,
+      position: "relative", overflow: "hidden",
+    }}>
+      <div style={{ position: "absolute", top: -14, right: -14, width: 60, height: 60, borderRadius: "50%", background: glow, opacity: 0.08, filter: "blur(16px)" }} />
+      <div style={{ fontSize: 10, color: C.textMuted, textTransform: "uppercase", letterSpacing: 1.4, marginBottom: 6 }}>{icon} {label}</div>
+      <div style={{ fontSize: 22, fontWeight: 800, color: glow, fontFamily: "Manrope,sans-serif", letterSpacing: -0.5 }}>{value}</div>
+      {sub && <div style={{ fontSize: 10, color: C.textMuted, marginTop: 3 }}>{sub}</div>}
+    </div>
+  );
+}
+
+/* ── Empty state SVG illustration ──────────────────────────────── */
+function EmptyIllustration() {
+  return (
+    <svg width="120" height="120" viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="60" cy="60" r="55" fill="rgba(171,163,255,0.06)" />
+      <circle cx="60" cy="60" r="38" fill="rgba(171,163,255,0.08)" />
+      {/* Brain outline */}
+      <path d="M42 55c0-10 6-18 18-18s18 8 18 18c0 4-1.5 8-4 11" stroke="#aba3ff" strokeWidth="2.5" strokeLinecap="round" />
+      <path d="M78 66c2.5-3 4-7 4-11" stroke="#aba3ff" strokeWidth="2.5" strokeLinecap="round" />
+      <path d="M42 55c-4 2-6 6-6 10 0 5 4 9 9 9h30c5 0 9-4 9-9 0-4-2-8-6-10" stroke="#aba3ff" strokeWidth="2.5" strokeLinecap="round" />
+      <path d="M60 37v6M52 40l3 5M68 40l-3 5" stroke="#23eea8" strokeWidth="2" strokeLinecap="round" />
+      {/* Sparkles */}
+      <circle cx="88" cy="34" r="3" fill="#ffdb8f" opacity="0.7" />
+      <circle cx="32" cy="44" r="2" fill="#aba3ff" opacity="0.6" />
+      <circle cx="90" cy="80" r="2.5" fill="#23eea8" opacity="0.5" />
+      <path d="M88 28l1.5 3 3 1.5-3 1.5L88 37l-1.5-2.5L84 33l2.5-1.5z" fill="#ffdb8f" opacity="0.4" />
+    </svg>
+  );
+}
+
+/* ── Main component ─────────────────────────────────────────────── */
 export default function Practice() {
-  const user = useAppStore(s => s.user);
+  const user   = useAppStore(s => s.user);
   const userId = user?.id;
 
-  const [subject,    setSubject]    = useState("Physics");
-  const [topic,      setTopic]      = useState("");
-  const [difficulty, setDifficulty] = useState("Medium");
-  const [questions,  setQuestions]  = useState(null);
-  const [qIdx,       setQIdx]       = useState(0);
-  const [selected,   setSelected]   = useState(null);
-  const [revealed,   setRevealed]   = useState(false);
-  const [stats,      setStats]      = useState({ correct: 0, wrong: 0 });
-  const [startTime,  setStartTime]  = useState(null);
-  const [loading,    setLoading]    = useState(false);
-  const [weakFlag,   setWeakFlag]   = useState(false);
-  const [weakTopics, setWeakTopics] = useState([]);
-  const [totalTime,  setTotalTime]  = useState(0);
+  const [subject,      setSubject]      = useState("Physics");
+  const [topic,        setTopic]        = useState("");
+  const [difficulty,   setDifficulty]   = useState("Medium");
+  const [questions,    setQuestions]    = useState(null);
+  const [qIdx,         setQIdx]         = useState(0);
+  const [selected,     setSelected]     = useState(null);
+  const [revealed,     setRevealed]     = useState(false);
+  const [stats,        setStats]        = useState({ correct: 0, wrong: 0 });
+  const [startTime,    setStartTime]    = useState(null);
+  const [loading,      setLoading]      = useState(false);
+  const [weakFlag,     setWeakFlag]     = useState(false);
+  const [weakTopics,   setWeakTopics]   = useState([]);
+  const [totalTime,    setTotalTime]    = useState(0);
+  const [generatedCard,setGeneratedCard]= useState(null);
+  const [adaptiveMode, setAdaptiveMode] = useState(true);
 
-  // Fetch weak areas on mount
+  const bannerRef = useRef(null);
+
   useEffect(() => {
     (async () => {
       try {
         const res = await getWeakAreas(userId);
-        if (res.data?.weak_areas) setWeakTopics(res.data.weak_areas.slice(0, 5));
-      } catch { /* analytics not ready yet */ }
+        if (res.data?.weak_areas) setWeakTopics(res.data.weak_areas.slice(0, 6));
+      } catch { /* no analytics yet */ }
     })();
   }, []);
 
-  const loadQuestions = async () => {
-    if (!subject || !topic) return;
-    console.log("Generating questions:", { subject, topic, difficulty });
+  const loadQuestions = async (subOverride, topicOverride) => {
+    const s = subOverride || subject;
+    const t = topicOverride || topic;
+    if (!s || !t) return;
     setLoading(true);
-    setQIdx(0); setSelected(null); setRevealed(false);
+    setQIdx(0); setSelected(null); setRevealed(false); setGeneratedCard(null);
     setStats({ correct: 0, wrong: 0 }); setWeakFlag(false); setTotalTime(0);
     try {
-      const res = await generateQuestions(subject, topic, difficulty);
-      if (res.data?.questions?.length) {
-        setQuestions(res.data.questions);
-      } else {
-        setQuestions([]);
-      }
-    } catch {
-      setQuestions([]);
-    }
+      const res = await generateQuestions(s, t, difficulty);
+      setQuestions(res.data?.questions?.length ? res.data.questions : []);
+    } catch { setQuestions([]); }
     setStartTime(Date.now());
     setLoading(false);
   };
 
+  const practiceWeakest = () => {
+    const top = weakTopics[0];
+    if (!top) return;
+    setSubject(top.subject || subject);
+    setTopic(top.topic || "");
+    setTimeout(() => loadQuestions(top.subject || subject, top.topic), 50);
+  };
+
   const qs = questions || [];
   const q  = qs[qIdx];
-  const accuracy = (stats.correct + stats.wrong) > 0
-    ? Math.round(stats.correct / (stats.correct + stats.wrong) * 100) : 0;
-  const avgTime = (stats.correct + stats.wrong) > 0
-    ? Math.round(totalTime / (stats.correct + stats.wrong)) : 0;
-
-  const [generatedCard, setGeneratedCard] = useState(null);
+  const accuracy = (stats.correct + stats.wrong) > 0 ? Math.round(stats.correct / (stats.correct + stats.wrong) * 100) : 0;
+  const avgTime  = (stats.correct + stats.wrong) > 0 ? Math.round(totalTime / (stats.correct + stats.wrong)) : 0;
+  const progressPct = qs.length > 0 ? Math.round(((qIdx + (revealed ? 1 : 0)) / qs.length) * 100) : 0;
+  const topWeakTopic = weakTopics[0];
 
   const handleSelect = async (opt) => {
     if (revealed) return;
-    setSelected(opt);
-    setRevealed(true);
-    setGeneratedCard(null);
+    setSelected(opt); setRevealed(true); setGeneratedCard(null);
     const correct = opt === q.answer;
     const timeSec = Math.round((Date.now() - startTime) / 1000);
     setTotalTime(t => t + timeSec);
-    const newStats = { correct: stats.correct + (correct ? 1 : 0), wrong: stats.wrong + (correct ? 0 : 1) };
-    setStats(newStats);
-    if (!correct && newStats.wrong >= 2) setWeakFlag(true);
+    const ns = { correct: stats.correct + (correct ? 1 : 0), wrong: stats.wrong + (correct ? 0 : 1) };
+    setStats(ns);
+    if (!correct && ns.wrong >= 2) setWeakFlag(true);
     try {
       const res = await submitAnswer(userId, q.id, q.question, opt, q.answer, timeSec, subject, topic);
-      if (res.data?.flashcard_generated) {
-        setGeneratedCard(res.data.flashcard_generated);
-      }
+      if (res.data?.flashcard_generated) setGeneratedCard(res.data.flashcard_generated);
     } catch (e) { console.error(e); }
   };
 
   const nextQ = () => {
-    setQIdx(i => i + 1);
-    setSelected(null);
-    setRevealed(false);
-    setGeneratedCard(null);
-    setStartTime(Date.now());
+    setQIdx(i => i + 1); setSelected(null); setRevealed(false);
+    setGeneratedCard(null); setStartTime(Date.now());
   };
 
-  const topWeakTopic = weakTopics[0];
-  const progressPct = qs.length > 0 ? Math.round(((qIdx + (revealed ? 1 : 0)) / qs.length) * 100) : 0;
-
   return (
-    <div className="px-6 py-7 max-w-7xl mx-auto">
-      {/* ── Header ────────────────────────────────────────── */}
-      <div className="mb-2">
-        <h1 className="text-2xl font-extrabold tracking-tight flex items-center gap-3">
-          <span className="inline-flex items-center justify-center w-9 h-9 rounded-lg bg-accent-purple/20 text-lg">🎯</span>
-          Adaptive Practice
-        </h1>
-        <p className="text-muted text-sm mt-1">
-          AI detects your weak areas from accuracy + response time and generates targeted questions
-        </p>
-      </div>
+    <>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&family=Inter:wght@400;500;600&display=swap');
+        @keyframes nebula-shimmer { 0%{background-position:200% 0} 100%{background-position:-200% 0} }
+        @keyframes pulse-glow { 0%,100%{opacity:.5;transform:scale(1)} 50%{opacity:1;transform:scale(1.04)} }
+        @keyframes fade-in { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:none} }
+        .practice-opt:hover { border-color: rgba(171,163,255,0.4) !important; background: rgba(171,163,255,0.05) !important; }
+        .weak-row:hover { background: ${C.surfaceHi} !important; cursor: pointer; }
+        .cta-btn:hover { filter: brightness(1.12); transform: scale(1.02); }
+      `}</style>
 
-      {/* ── AI Recommendation Banner ─────────────────────── */}
-      {topWeakTopic && !questions && (
-        <div className="animate-fade-in mt-4 mb-6 relative overflow-hidden rounded-xl border border-accent-purple/30 bg-gradient-to-r from-accent-purple/10 via-surface-700 to-accent-blue/10 p-4">
-          <div className="absolute inset-0 bg-gradient-to-r from-accent-purple/5 to-accent-blue/5 animate-pulse-slow" />
-          <div className="relative flex items-center justify-between flex-wrap gap-4">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-accent-purple/20 flex items-center justify-center text-xl">🧠</div>
-              <div>
-                <div className="text-xs font-bold text-accent-purple uppercase tracking-wider mb-0.5">AI Recommendation</div>
-                <div className="text-sm">
-                  Practice <span className="font-bold text-white">{topWeakTopic.topic}</span>
-                  <span className="text-muted"> — </span>
-                  <span className="text-accent-red font-semibold">{Math.round((topWeakTopic.accuracy || 0.4) * 100)}% accuracy</span>
-                </div>
+      <div style={{ padding: "24px 28px", fontFamily: "Inter,sans-serif", color: C.textPrimary, minHeight: "100vh" }}>
+
+        {/* ── Header + Adaptive Toggle ─────────────────────────── */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 18 }}>
+          <div>
+            <h1 style={{ fontSize: 24, fontWeight: 800, fontFamily: "Manrope,sans-serif", letterSpacing: -0.5, margin: 0 }}>
+              🎯 Adaptive Practice
+            </h1>
+            <p style={{ color: C.textMuted, fontSize: 13, margin: "5px 0 0" }}>
+              AI detects weak areas from accuracy + response time and generates targeted questions
+            </p>
+          </div>
+          {/* Adaptive Mode toggle */}
+          <div style={{ display: "flex", alignItems: "center", gap: 10, ...glass({ padding: "8px 14px" }) }}>
+            <span style={{ fontSize: 12, color: adaptiveMode ? C.primary : C.textMuted, fontWeight: 600, transition: "color 0.2s" }}>
+              ⚡ Adaptive Mode
+            </span>
+            <div
+              onClick={() => setAdaptiveMode(m => !m)}
+              style={{
+                width: 40, height: 22, borderRadius: 11, cursor: "pointer", position: "relative",
+                background: adaptiveMode ? `linear-gradient(135deg,${C.primary},${C.primaryDim})` : C.surfaceTop,
+                transition: "background 0.3s", boxShadow: adaptiveMode ? `0 0 12px ${C.primary}55` : "none",
+              }}
+            >
+              <div style={{
+                position: "absolute", top: 3, left: adaptiveMode ? 21 : 3, width: 16, height: 16,
+                borderRadius: "50%", background: "#fff", transition: "left 0.25s", boxShadow: "0 1px 4px rgba(0,0,0,0.4)",
+              }} />
+            </div>
+          </div>
+        </div>
+
+        {/* ── Sticky AI Recommendation Banner ─────────────────── */}
+        {topWeakTopic && (
+          <div
+            ref={bannerRef}
+            style={{
+              ...glass({ padding: "14px 20px", marginBottom: 22 }),
+              position: "sticky", top: 8, zIndex: 30,
+              background: "linear-gradient(135deg,rgba(171,163,255,.12),rgba(109,95,239,.08),rgba(35,238,168,.06))",
+              boxShadow: `0 0 40px rgba(171,163,255,.15), 0 4px 20px rgba(0,0,0,0.3)`,
+              display: "flex", alignItems: "center", gap: 14,
+              animation: "fade-in 0.4s ease",
+            }}
+          >
+            <div style={{
+              width: 40, height: 40, borderRadius: 12,
+              background: "rgba(171,163,255,.15)", display: "flex", alignItems: "center", justifyContent: "center",
+              fontSize: 20, flexShrink: 0, animation: "pulse-glow 2.5s ease-in-out infinite",
+            }}>🧠</div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 10, color: C.primary, textTransform: "uppercase", letterSpacing: 1.4, fontWeight: 700, marginBottom: 3 }}>
+                AI Recommendation
+              </div>
+              <div style={{ fontSize: 13, color: C.textPrimary }}>
+                Practice <strong>{topWeakTopic.topic}</strong>
+                <span style={{ color: C.textMuted }}> — </span>
+                <span style={{ color: C.error, fontWeight: 600 }}>{Math.round((topWeakTopic.accuracy || 0.4) * 100)}% accuracy</span>
+                <span style={{ color: C.textMuted, fontSize: 12 }}> · needs immediate revision</span>
               </div>
             </div>
             <button
-              onClick={() => {
-                setSubject(topWeakTopic.subject || subject);
-                setTopic(topWeakTopic.topic || "");
-                setTimeout(loadQuestions, 50);
+              className="cta-btn"
+              onClick={practiceWeakest}
+              style={{
+                background: `linear-gradient(135deg,${C.error},#c23d58)`,
+                color: "#fff", border: "none", borderRadius: 9, padding: "9px 16px",
+                fontSize: 12, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap",
+                boxShadow: `0 4px 14px rgba(255,110,132,0.3)`, transition: "all 0.2s",
               }}
-              className="px-4 py-2 rounded-lg bg-accent-purple text-white text-sm font-semibold hover:bg-accent-purple/80 transition-all hover:shadow-lg hover:shadow-accent-purple/25 active:scale-95"
             >
               ⚡ Start AI Practice
             </button>
           </div>
+        )}
+
+        {/* ── Session Stats row ─────────────────────────────────── */}
+        <div style={{ display: "flex", gap: 12, marginBottom: 22 }}>
+          <StatCard icon="🔥" label="Weakest Topic"  value={topWeakTopic?.topic || "—"}         sub={topWeakTopic?.subject || "No data yet"}  glow={C.error}     />
+          <StatCard icon="⏱️" label="Avg Response"   value={avgTime > 0 ? `${avgTime}s` : "—"}  sub={avgTime > 30 ? "Slow" : avgTime > 0 ? "Normal" : "No attempts"} glow="#4a9eff" />
+          <StatCard icon="📊" label="Accuracy"       value={stats.correct+stats.wrong>0?`${accuracy}%`:"—"} sub={stats.correct+stats.wrong>0?`${stats.correct}/${stats.correct+stats.wrong} correct`:"No attempts"} glow={accuracy>70?C.secondary:C.tertiary} />
+          <StatCard icon="🎯" label="Focus Subject"  value={topWeakTopic?.subject || subject}    sub="Recommended"                             glow={C.primary}   />
         </div>
-      )}
 
-      {/* ── Stats Row ────────────────────────────────────── */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-        {[
-          {
-            label: "Weakest Topic",
-            value: topWeakTopic?.topic || "—",
-            sub: topWeakTopic?.subject || "No data yet",
-            color: "text-accent-red",
-            icon: "🔥",
-            border: "border-accent-red/20",
-          },
-          {
-            label: "Avg Response",
-            value: avgTime > 0 ? `${avgTime}s` : "—",
-            sub: avgTime > 0 ? (avgTime < 15 ? "Fast" : avgTime < 30 ? "Normal" : "Slow") : "No attempts",
-            color: "text-accent-blue",
-            icon: "⏱️",
-            border: "border-accent-blue/20",
-          },
-          {
-            label: "Accuracy",
-            value: (stats.correct + stats.wrong) > 0 ? `${accuracy}%` : "—",
-            sub: (stats.correct + stats.wrong) > 0 ? `${stats.correct}/${stats.correct + stats.wrong} correct` : "No attempts",
-            color: accuracy > 70 ? "text-accent-green" : "text-accent-yellow",
-            icon: "📊",
-            border: accuracy > 70 ? "border-accent-green/20" : "border-accent-yellow/20",
-          },
-          {
-            label: "Recommended",
-            value: topWeakTopic?.subject || subject,
-            sub: "Focus subject",
-            color: "text-accent-purple",
-            icon: "🎯",
-            border: "border-accent-purple/20",
-          },
-        ].map((s, i) => (
-          <div key={i} className={`bg-surface-700 rounded-xl border ${s.border} p-4 hover:border-opacity-60 transition-all group`}>
-            <div className="flex items-center gap-2 mb-2">
-              <span className="text-base">{s.icon}</span>
-              <span className="text-[10px] font-bold text-muted uppercase tracking-widest">{s.label}</span>
-            </div>
-            <div className={`text-xl font-extrabold ${s.color} leading-tight truncate`}>{s.value}</div>
-            <div className="text-[11px] text-muted mt-1">{s.sub}</div>
-          </div>
-        ))}
-      </div>
+        {/* ── Two-column Main Layout ───────────────────────────── */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1.7fr", gap: 18, alignItems: "start" }}>
 
-      {/* ── Main 2-Column Layout ─────────────────────────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+          {/* ── LEFT column ──────────────────────────────────── */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
 
-        {/* LEFT: Controls (1/3 width) */}
-        <div className="lg:col-span-1 space-y-4">
-          {/* Config Panel */}
-          <div className="bg-surface-700 rounded-xl border border-surface-500 p-5 space-y-4">
-            <h3 className="text-xs font-bold text-muted uppercase tracking-widest flex items-center gap-2">
-              <span>⚙️</span> Configuration
-            </h3>
+            {/* Config card */}
+            <div style={{ ...glass({ padding: "20px" }) }}>
+              <div style={{ fontSize: 10, color: C.textMuted, textTransform: "uppercase", letterSpacing: 1.4, fontWeight: 700, marginBottom: 16 }}>
+                ⚙️ Configuration
+              </div>
 
-            <div>
-              <label className="block text-[11px] text-muted mb-1.5">Subject</label>
-              <select
-                value={subject}
-                onChange={e => setSubject(e.target.value)}
-                className="w-full bg-surface-600 border border-surface-500 rounded-lg text-[13px] text-white px-3 py-2.5 outline-none focus:border-accent-purple/60 transition-colors appearance-none cursor-pointer"
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ fontSize: 10, color: C.textMuted, marginBottom: 6, textTransform: "uppercase", letterSpacing: 1 }}>Subject</div>
+                <select
+                  value={subject}
+                  onChange={e => setSubject(e.target.value)}
+                  style={{ width: "100%", padding: "10px 12px", background: C.surfaceTop, border: "none", borderRadius: 8, color: C.textPrimary, fontSize: 13, outline: "none", cursor: "pointer" }}
+                >
+                  {SUBJECTS.map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </div>
+
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ fontSize: 10, color: C.textMuted, marginBottom: 6, textTransform: "uppercase", letterSpacing: 1 }}>Topic</div>
+                <input
+                  value={topic}
+                  onChange={e => setTopic(e.target.value)}
+                  placeholder="e.g. F block, Rotational Mechanics"
+                  style={{ width: "100%", padding: "10px 12px", background: C.surfaceTop, border: "none", borderRadius: 8, color: C.textPrimary, fontSize: 13, outline: "none", boxSizing: "border-box" }}
+                />
+              </div>
+
+              <div style={{ marginBottom: 18 }}>
+                <div style={{ fontSize: 10, color: C.textMuted, marginBottom: 6, textTransform: "uppercase", letterSpacing: 1 }}>Difficulty</div>
+                <div style={{ display: "flex", gap: 6 }}>
+                  {DIFFICULTIES.map(d => (
+                    <button
+                      key={d}
+                      onClick={() => setDifficulty(d)}
+                      style={{
+                        flex: 1, padding: "8px 0", borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: "pointer", transition: "all 0.15s",
+                        border: difficulty === d ? `1px solid ${C.primary}55` : `1px solid ${C.outline}33`,
+                        background: difficulty === d ? `${C.primary}18` : "transparent",
+                        color: difficulty === d ? C.primary : C.textMuted,
+                      }}
+                    >
+                      {d === "Easy" ? "🟢" : d === "Medium" ? "🟡" : "🔴"} {d}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <button
+                className="cta-btn"
+                onClick={() => loadQuestions()}
+                disabled={loading || !subject || !topic}
+                style={{
+                  width: "100%", padding: "12px", borderRadius: 10, border: "none", cursor: loading || !topic ? "not-allowed" : "pointer",
+                  background: loading || !topic ? C.surfaceTop : `linear-gradient(135deg,${C.primary},${C.primaryDim})`,
+                  color: loading || !topic ? C.textMuted : "#fff", fontSize: 13, fontWeight: 700, transition: "all 0.2s",
+                  boxShadow: !loading && topic ? `0 4px 20px ${C.primary}33` : "none",
+                }}
               >
-                {SUBJECTS.map(s => <option key={s} value={s}>{s}</option>)}
-              </select>
+                {loading
+                  ? <span style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+                      <span style={{ width: 14, height: 14, border: "2px solid rgba(255,255,255,.25)", borderTopColor: "#fff", borderRadius: "50%", animation: "spin 0.8s linear infinite", display: "inline-block" }} />
+                      Generating…
+                    </span>
+                  : "⚡ Generate Questions"
+                }
+              </button>
             </div>
 
-            <div>
-              <label className="block text-[11px] text-muted mb-1.5">Topic</label>
-              <input
-                value={topic}
-                onChange={e => setTopic(e.target.value)}
-                placeholder="e.g. F block, Rotational Mechanics"
-                className="w-full bg-surface-600 border border-surface-500 rounded-lg text-[13px] text-white px-3 py-2.5 outline-none focus:border-accent-purple/60 transition-colors placeholder:text-muted/60"
-              />
-            </div>
-
-            <div>
-              <label className="block text-[11px] text-muted mb-1.5">Difficulty</label>
-              <div className="flex gap-2">
-                {DIFFICULTIES.map(d => (
+            {/* Weak Topics Panel */}
+            <div style={{ ...glass({ padding: "18px 20px" }) }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+                <div style={{ fontSize: 10, color: C.textMuted, textTransform: "uppercase", letterSpacing: 1.4, fontWeight: 700 }}>
+                  ⚠️ Weak Topics
+                </div>
+                {weakTopics.length > 0 && (
                   <button
-                    key={d}
-                    onClick={() => setDifficulty(d)}
-                    className={`flex-1 py-2 rounded-lg text-xs font-semibold transition-all ${
-                      difficulty === d
-                        ? "bg-accent-purple/20 text-accent-purple border border-accent-purple/40"
-                        : "bg-surface-800 text-muted border border-surface-500 hover:border-muted/40"
-                    }`}
+                    className="cta-btn"
+                    onClick={practiceWeakest}
+                    style={{
+                      background: `${C.error}20`, color: C.error, border: `1px solid ${C.error}40`,
+                      borderRadius: 7, padding: "5px 12px", fontSize: 11, fontWeight: 700, cursor: "pointer", transition: "all 0.15s",
+                    }}
                   >
-                    {d === "Easy" ? "🟢" : d === "Medium" ? "🟡" : "🔴"} {d}
+                    🎯 Practice Weakest
                   </button>
-                ))}
+                )}
               </div>
-            </div>
-
-            <button
-              onClick={loadQuestions}
-              disabled={loading || !subject || !topic}
-              className="w-full py-3 rounded-xl bg-gradient-to-r from-accent-purple to-accent-blue text-white text-sm font-bold transition-all hover:shadow-lg hover:shadow-accent-purple/25 active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:shadow-none"
-            >
-              {loading ? (
-                <span className="flex items-center justify-center gap-2">
-                  <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  Generating…
-                </span>
-              ) : (
-                "⚡ Generate Questions"
-              )}
-            </button>
-          </div>
-
-          {/* Weak Topics Panel */}
-          <div className="bg-surface-700 rounded-xl border border-surface-500 p-5">
-            <h3 className="text-xs font-bold text-muted uppercase tracking-widest flex items-center gap-2 mb-3">
-              <span>📉</span> Weak Topics
-            </h3>
-            {weakTopics.length > 0 ? (
-              <div className="space-y-2.5">
-                {weakTopics.map((wt, i) => {
-                  const pct = Math.round((wt.accuracy || 0.4) * 100);
-                  const barColor = pct < 40 ? "bg-accent-red" : pct < 70 ? "bg-accent-yellow" : "bg-accent-green";
-                  return (
-                    <div key={i} className="group">
-                      <div className="flex justify-between items-center mb-1">
-                        <span className="text-xs font-medium truncate">{wt.topic}</span>
-                        <span className={`text-[10px] font-bold ${pct < 40 ? "text-accent-red" : pct < 70 ? "text-accent-yellow" : "text-accent-green"}`}>{pct}%</span>
-                      </div>
-                      <div className="h-1 bg-surface-500 rounded-full overflow-hidden">
-                        <div className={`h-full ${barColor} rounded-full transition-all duration-500`} style={{ width: `${pct}%` }} />
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            ) : (
-              <p className="text-xs text-muted py-4 text-center">
-                Practice some topics to see analytics.
-              </p>
-            )}
-          </div>
-
-          {/* Last Attempt Summary */}
-          {(stats.correct + stats.wrong) > 0 && (
-            <div className="bg-surface-700 rounded-xl border border-surface-500 p-5 animate-fade-in">
-              <h3 className="text-xs font-bold text-muted uppercase tracking-widest flex items-center gap-2 mb-3">
-                <span>📋</span> Session Summary
-              </h3>
-              <div className="space-y-2">
-                <div className="flex justify-between text-xs">
-                  <span className="text-muted">Correct</span>
-                  <span className="text-accent-green font-bold">{stats.correct}</span>
-                </div>
-                <div className="flex justify-between text-xs">
-                  <span className="text-muted">Wrong</span>
-                  <span className="text-accent-red font-bold">{stats.wrong}</span>
-                </div>
-                <div className="flex justify-between text-xs">
-                  <span className="text-muted">Accuracy</span>
-                  <span className={`font-bold ${accuracy > 70 ? "text-accent-green" : "text-accent-yellow"}`}>{accuracy}%</span>
-                </div>
-                <div className="flex justify-between text-xs">
-                  <span className="text-muted">Avg Time</span>
-                  <span className="text-accent-blue font-bold">{avgTime}s</span>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* RIGHT: Question Area (2/3 width) */}
-        <div className="lg:col-span-2">
-
-          {/* Loading Skeleton */}
-          {loading && (
-            <div className="bg-surface-700 rounded-xl border border-surface-500 p-6 space-y-5 animate-fade-in">
-              <div className="flex gap-2">
-                <div className="h-5 w-20 rounded bg-gradient-to-r from-surface-500 via-surface-400 to-surface-500 bg-[length:200%_100%] animate-shimmer" />
-                <div className="h-5 w-28 rounded bg-gradient-to-r from-surface-500 via-surface-400 to-surface-500 bg-[length:200%_100%] animate-shimmer" />
-              </div>
-              <div className="space-y-2">
-                <div className="h-4 w-full rounded bg-gradient-to-r from-surface-500 via-surface-400 to-surface-500 bg-[length:200%_100%] animate-shimmer" />
-                <div className="h-4 w-3/4 rounded bg-gradient-to-r from-surface-500 via-surface-400 to-surface-500 bg-[length:200%_100%] animate-shimmer" />
-              </div>
-              <div className="space-y-3 mt-4">
-                {[1,2,3,4].map(i => (
-                  <div key={i} className="h-12 rounded-lg bg-gradient-to-r from-surface-500 via-surface-400 to-surface-500 bg-[length:200%_100%] animate-shimmer" />
-                ))}
-              </div>
-              <p className="text-xs text-muted text-center pt-2">AI is generating {subject} questions on {topic}…</p>
-            </div>
-          )}
-
-          {/* Question Card */}
-          {q && !loading && (
-            <div className="animate-slide-up space-y-4">
-              {/* Progress Header */}
-              <div className="bg-surface-700 rounded-xl border border-surface-500 p-4">
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-bold text-accent-purple bg-accent-purple/15 px-2.5 py-1 rounded-md">
-                      Question {qIdx + 1} of {qs.length}
-                    </span>
-                    <span className="text-[10px] text-muted bg-surface-500 px-2 py-1 rounded-md">
-                      {subject} · {topic}
-                    </span>
-                    {q.concept_tested && (
-                      <span className="text-[10px] text-accent-blue bg-accent-blue/15 px-2 py-1 rounded-md font-semibold border border-accent-blue/30">
-                        Concept: {q.concept_tested}
-                      </span>
-                    )}
-                  </div>
-                  <span className="text-xs text-muted font-mono">{progressPct}%</span>
-                </div>
-                <div className="h-1.5 bg-surface-500 rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-gradient-to-r from-accent-purple to-accent-blue rounded-full transition-all duration-500 ease-out"
-                    style={{ width: `${progressPct}%` }}
-                  />
-                </div>
-              </div>
-
-              {/* Question Body */}
-              <div className="bg-surface-700 rounded-xl border border-surface-500 p-6">
-                <div className="text-base font-semibold leading-relaxed mb-5">{q.question}</div>
-
-                <div className="space-y-2.5">
-                  {q.options.map((opt, i) => {
-                    let classes = "bg-surface-600 border-surface-500 text-white hover:border-accent-purple/40 cursor-pointer";
-                    if (revealed) {
-                      if (opt === q.answer) {
-                        classes = "bg-accent-green/10 border-accent-green/50 text-accent-green";
-                      } else if (opt === selected) {
-                        classes = "bg-accent-red/10 border-accent-red/50 text-accent-red";
-                      } else {
-                        classes = "bg-surface-600 border-surface-500 text-muted opacity-50";
-                      }
-                    }
+              {weakTopics.length > 0 ? (
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  {weakTopics.map((wt, i) => {
+                    const pct = Math.round((wt.accuracy || 0.4) * 100);
+                    const col = pct < 40 ? C.error : pct < 70 ? C.tertiary : C.secondary;
                     return (
                       <div
                         key={i}
-                        onClick={() => handleSelect(opt)}
-                        className={`flex items-center gap-3 px-4 py-3.5 rounded-xl border transition-all duration-200 ${classes} ${revealed ? "cursor-default" : ""}`}
+                        className="weak-row"
+                        onClick={() => { setSubject(wt.subject || subject); setTopic(wt.topic); }}
+                        style={{ padding: "8px 10px", borderRadius: 8, transition: "background 0.15s" }}
                       >
-                        <span className={`w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold shrink-0 ${
-                          revealed && opt === q.answer ? "bg-accent-green/20 text-accent-green" :
-                          revealed && opt === selected ? "bg-accent-red/20 text-accent-red" :
-                          "bg-surface-500 text-muted"
-                        }`}>
-                          {String.fromCharCode(65 + i)}
-                        </span>
-                        <span className="text-sm">{opt}</span>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 5 }}>
+                          <div>
+                            <span style={{ fontSize: 12, fontWeight: 600, color: C.textPrimary }}>{wt.topic}</span>
+                            <span style={{ fontSize: 10, color: C.textMuted, marginLeft: 6 }}>{wt.subject}</span>
+                          </div>
+                          <span style={{ fontSize: 11, fontWeight: 700, color: col }}>{pct}%</span>
+                        </div>
+                        <div style={{ height: 4, background: C.surfaceTop, borderRadius: 2, overflow: "hidden" }}>
+                          <div style={{ height: "100%", width: `${pct}%`, background: col, borderRadius: 2, boxShadow: `0 0 6px ${col}66`, transition: "width 0.5s" }} />
+                        </div>
                       </div>
                     );
                   })}
                 </div>
+              ) : (
+                <p style={{ fontSize: 12, color: C.textMuted, textAlign: "center", padding: "16px 0" }}>
+                  Practice some topics to see weak area analytics.
+                </p>
+              )}
+            </div>
 
-                {/* Explanation + Navigation */}
-                {revealed && (
-                  <div className="mt-5 animate-fade-in">
-                    <div className={`rounded-xl p-4 border ${
-                      selected === q.answer
-                        ? "bg-accent-green/5 border-accent-green/30"
-                        : "bg-accent-red/5 border-accent-red/30"
-                    }`}>
-                      <div className={`text-sm font-bold mb-2 ${
-                        selected === q.answer ? "text-accent-green" : "text-accent-red"
-                      }`}>
-                        {selected === q.answer ? "✅ Correct!" : `❌ Incorrect — Correct Answer: ${q.answer}`}
-                      </div>
-                      <div className="text-xs text-muted leading-relaxed pb-1 border-t border-surface-500 pt-2 mt-2">
-                        <strong className="text-white">Explanation:</strong> {q.explanation}
-                      </div>
+            {/* Session Summary */}
+            {(stats.correct + stats.wrong) > 0 && (
+              <div style={{ ...glass({ padding: "18px 20px" }), animation: "fade-in 0.4s ease" }}>
+                <div style={{ fontSize: 10, color: C.textMuted, textTransform: "uppercase", letterSpacing: 1.4, fontWeight: 700, marginBottom: 14 }}>
+                  📋 Session Summary
+                </div>
+                {[
+                  { label: "Correct", value: stats.correct, color: C.secondary },
+                  { label: "Wrong",   value: stats.wrong,   color: C.error },
+                  { label: "Accuracy",value: `${accuracy}%`, color: accuracy > 70 ? C.secondary : C.tertiary },
+                  { label: "Avg Time",value: `${avgTime}s`,  color: "#4a9eff" },
+                ].map((row, i) => (
+                  <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                    <span style={{ fontSize: 12, color: C.textMuted }}>{row.label}</span>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: row.color }}>{row.value}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* ── RIGHT column (question area) ──────────────────── */}
+          <div>
+
+            {/* Loading Skeleton */}
+            {loading && (
+              <div style={{ ...glass({ padding: "24px" }), animation: "fade-in 0.4s ease" }}>
+                <div style={{ display: "flex", gap: 10, marginBottom: 18 }}>
+                  <Sk w={80} h={20} r={8} />
+                  <Sk w={120} h={20} r={8} />
+                </div>
+                <Sk w="100%" h={8} r={4} />
+                <div style={{ marginTop: 20, display: "flex", flexDirection: "column", gap: 10 }}>
+                  {[1,2,3,4].map(i => <Sk key={i} w="100%" h={52} r={10} />)}
+                </div>
+                <p style={{ fontSize: 12, color: C.textMuted, textAlign: "center", marginTop: 16 }}>
+                  AI generating {subject} questions on <strong style={{ color: C.primary }}>{topic}</strong>…
+                </p>
+              </div>
+            )}
+
+            {/* Question Card */}
+            {q && !loading && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 14, animation: "fade-in 0.3s ease" }}>
+                {/* Progress header */}
+                <div style={{ ...glass({ padding: "14px 18px" }) }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: C.primary, background: `${C.primary}18`, padding: "3px 10px", borderRadius: 6 }}>
+                        Q{qIdx + 1} / {qs.length}
+                      </span>
+                      <span style={{ fontSize: 10, color: C.textMuted, background: C.surfaceTop, padding: "3px 10px", borderRadius: 6 }}>
+                        {subject} · {topic}
+                      </span>
+                      {q.concept_tested && (
+                        <span style={{ fontSize: 10, color: "#4a9eff", background: "rgba(74,158,255,.12)", padding: "3px 10px", borderRadius: 6, fontWeight: 600 }}>
+                          {q.concept_tested}
+                        </span>
+                      )}
                     </div>
+                    <span style={{ fontSize: 11, color: C.textMuted, fontFamily: "monospace" }}>{progressPct}%</span>
+                  </div>
+                  {/* Progress bar */}
+                  <div style={{ height: 6, background: C.surfaceTop, borderRadius: 3, overflow: "hidden" }}>
+                    <div style={{
+                      height: "100%", borderRadius: 3, transition: "width 0.5s ease",
+                      width: `${progressPct}%`,
+                      background: `linear-gradient(90deg,${C.primaryDim},${C.primary},${C.secondary})`,
+                      boxShadow: `0 0 8px ${C.primary}66`,
+                    }} />
+                  </div>
+                </div>
 
-                    {/* Auto-generated flashcard notification */}
-                    {revealed && selected !== q.answer && generatedCard && (
-                      <div className="mt-3 animate-slide-up bg-gradient-to-r from-accent-purple/10 via-surface-700 to-accent-blue/10 rounded-xl border border-accent-purple/30 p-4">
-                        <div className="flex items-start gap-3">
-                          <div className="w-8 h-8 rounded-lg bg-accent-purple/20 flex items-center justify-center text-base shrink-0">📝</div>
-                          <div className="flex-1 min-w-0">
-                            <div className="text-xs font-bold text-accent-purple mb-1">Flashcard Auto-Generated</div>
-                            <div className="text-sm font-semibold text-white truncate">
-                              {generatedCard.concept}
-                              {generatedCard.formula && (
-                                <span className="ml-2 text-accent-blue font-mono text-xs">{generatedCard.formula}</span>
-                              )}
+                {/* Question body */}
+                <div style={{ ...glass({ padding: "22px" }) }}>
+                  <div style={{ fontSize: 15, fontWeight: 600, lineHeight: 1.6, marginBottom: 20, color: C.textPrimary }}>
+                    {q.question}
+                  </div>
+
+                  <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                    {q.options.map((opt, i) => {
+                      let bg = C.surfaceTop, border = `1px solid ${C.outline}44`, color = C.textPrimary, shadow = "none";
+                      if (revealed) {
+                        if (opt === q.answer)    { bg = "rgba(35,238,168,.08)"; border = `1px solid ${C.secondary}55`; color = C.secondary; shadow = `0 0 12px ${C.secondary}22`; }
+                        else if (opt === selected){ bg = "rgba(255,110,132,.08)"; border = `1px solid ${C.error}55`; color = C.error; shadow = `0 0 12px ${C.error}22`; }
+                        else                     { bg = C.surface; color = C.textMuted; border = `1px solid ${C.outline}22`; }
+                      }
+                      return (
+                        <div
+                          key={i}
+                          className={!revealed ? "practice-opt" : ""}
+                          onClick={() => handleSelect(opt)}
+                          style={{
+                            display: "flex", alignItems: "center", gap: 12,
+                            padding: "14px 16px", borderRadius: 10, cursor: revealed ? "default" : "pointer",
+                            background: bg, border, color, boxShadow: shadow, transition: "all 0.2s",
+                          }}
+                        >
+                          <span style={{
+                            width: 28, height: 28, borderRadius: 7, display: "flex", alignItems: "center", justifyContent: "center",
+                            fontSize: 12, fontWeight: 700, flexShrink: 0,
+                            background: revealed && opt === q.answer ? `${C.secondary}20`
+                              : revealed && opt === selected ? `${C.error}20`
+                              : C.surfaceTop,
+                            color: revealed && opt === q.answer ? C.secondary
+                              : revealed && opt === selected ? C.error
+                              : C.textMuted,
+                          }}>
+                            {String.fromCharCode(65 + i)}
+                          </span>
+                          <span style={{ fontSize: 13 }}>{opt}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Explanation + Navigation */}
+                  {revealed && (
+                    <div style={{ marginTop: 18, animation: "fade-in 0.3s ease" }}>
+                      <div style={{
+                        padding: "14px 16px", borderRadius: 10,
+                        background: selected === q.answer ? "rgba(35,238,168,.06)" : "rgba(255,110,132,.06)",
+                        border: `1px solid ${selected === q.answer ? C.secondary : C.error}33`,
+                      }}>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: selected === q.answer ? C.secondary : C.error, marginBottom: 8 }}>
+                          {selected === q.answer ? "✅ Correct!" : `❌ Incorrect — Answer: ${q.answer}`}
+                        </div>
+                        <div style={{ fontSize: 12, color: C.textMuted, lineHeight: 1.6 }}>
+                          <strong style={{ color: C.textPrimary }}>Explanation:</strong> {q.explanation}
+                        </div>
+                      </div>
+
+                      {/* Flashcard notification */}
+                      {selected !== q.answer && generatedCard && (
+                        <div style={{
+                          marginTop: 12, animation: "fade-in 0.3s ease",
+                          ...glass({ padding: "14px 16px" }),
+                          background: "linear-gradient(135deg,rgba(171,163,255,.1),rgba(109,95,239,.06))",
+                          border: `1px solid ${C.primary}33`,
+                        }}>
+                          <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
+                            <div style={{ width: 32, height: 32, borderRadius: 8, background: `${C.primary}20`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>📝</div>
+                            <div style={{ flex: 1 }}>
+                              <div style={{ fontSize: 10, color: C.primary, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>Flashcard Auto-Generated</div>
+                              <div style={{ fontSize: 13, fontWeight: 600, color: C.textPrimary }}>
+                                {generatedCard.concept}
+                                {generatedCard.formula && <span style={{ marginLeft: 8, fontSize: 11, color: "#4a9eff", fontFamily: "monospace" }}>{generatedCard.formula}</span>}
+                              </div>
+                              <div style={{ fontSize: 11, color: C.textMuted, marginTop: 2 }}>{generatedCard.front}</div>
+                              <div style={{ fontSize: 10, color: C.secondary, marginTop: 4 }}>✓ Added to Revision queue — due today</div>
                             </div>
-                            <div className="text-[11px] text-muted mt-1 truncate">{generatedCard.front}</div>
-                            <div className="text-[10px] text-accent-green/70 mt-1">✓ Added to your Revision queue — due today</div>
                           </div>
                         </div>
-                      </div>
-                    )}
-                    {revealed && selected !== q.answer && !generatedCard && (
-                      <div className="mt-3 flex items-center gap-2 text-[11px] text-accent-yellow">
-                        <span>⚠️</span> Processing — generating revision card…
-                      </div>
-                    )}
-
-                    <div className="flex items-center justify-between mt-4">
-                      <div />
-                      {qIdx < qs.length - 1 ? (
-                        <button
-                          onClick={nextQ}
-                          className="px-5 py-2.5 rounded-xl bg-accent-purple text-white text-sm font-semibold hover:bg-accent-purple/80 transition-all active:scale-95"
-                        >
-                          Next Question →
-                        </button>
-                      ) : (
-                        <div className="flex gap-2">
-                          <button
-                            onClick={loadQuestions}
-                            className="px-4 py-2.5 rounded-xl bg-accent-green/10 text-accent-green border border-accent-green/30 text-sm font-semibold hover:bg-accent-green/20 transition-all active:scale-95"
-                          >
-                            🔄 New Set
-                          </button>
-                          <button
-                            onClick={() => setQuestions(null)}
-                            className="px-4 py-2.5 rounded-xl bg-accent-red/10 text-accent-red border border-accent-red/30 text-sm font-semibold hover:bg-accent-red/20 transition-all active:scale-95"
-                          >
-                            ✏️ Change Topic
-                          </button>
+                      )}
+                      {selected !== q.answer && !generatedCard && (
+                        <div style={{ marginTop: 10, fontSize: 11, color: C.tertiary, display: "flex", alignItems: "center", gap: 6 }}>
+                          <span>⚠️</span> Processing — generating revision card…
                         </div>
                       )}
+
+                      {/* Navigation */}
+                      <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 16, gap: 8 }}>
+                        {qIdx < qs.length - 1 ? (
+                          <button
+                            className="cta-btn"
+                            onClick={nextQ}
+                            style={{ background: `linear-gradient(135deg,${C.primary},${C.primaryDim})`, color: "#fff", border: "none", borderRadius: 9, padding: "10px 20px", fontSize: 13, fontWeight: 700, cursor: "pointer", transition: "all 0.2s" }}
+                          >
+                            Next Question →
+                          </button>
+                        ) : (
+                          <>
+                            <button onClick={loadQuestions} style={{ background: `${C.secondary}15`, color: C.secondary, border: `1px solid ${C.secondary}33`, borderRadius: 9, padding: "10px 16px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+                              🔄 New Set
+                            </button>
+                            <button onClick={() => setQuestions(null)} style={{ background: `${C.error}15`, color: C.error, border: `1px solid ${C.error}33`, borderRadius: 9, padding: "10px 16px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+                              ✏️ Change Topic
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Weakness alert */}
+                {weakFlag && (
+                  <div style={{ ...glass({ padding: "16px 18px" }), border: `1px solid ${C.error}33`, animation: "fade-in 0.3s ease" }}>
+                    <div style={{ display: "flex", gap: 12 }}>
+                      <div style={{ width: 38, height: 38, borderRadius: 10, background: `${C.error}15`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, flexShrink: 0 }}>⚠️</div>
+                      <div>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: C.error, marginBottom: 4 }}>Weakness Detected by AI</div>
+                        <div style={{ fontSize: 12, color: C.textMuted, lineHeight: 1.6 }}>
+                          Pattern of errors in <strong style={{ color: C.textPrimary }}>{subject} — {topic}</strong>.
+                          The planner will automatically increase revision frequency.
+                        </div>
+                      </div>
                     </div>
                   </div>
                 )}
               </div>
-            </div>
-          )}
+            )}
 
-          {/* Empty State */}
-          {!q && !loading && (
-            <div className="animate-fade-in bg-surface-700 rounded-xl border border-surface-500 flex flex-col items-center justify-center py-16 px-6">
-              <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-accent-purple/20 to-accent-blue/20 flex items-center justify-center text-4xl mb-5">
-                🧠
-              </div>
-              <h3 className="text-lg font-bold mb-2">Generate Adaptive Questions</h3>
-              <p className="text-sm text-muted text-center max-w-md mb-6">
-                Select a subject and topic from the configuration panel, then click
-                <span className="text-accent-purple font-semibold"> ⚡ Generate Questions</span> to begin AI-powered practice.
-              </p>
-              <div className="flex items-center gap-6 text-[11px] text-muted">
-                <span className="flex items-center gap-1.5">
-                  <span className="w-1.5 h-1.5 rounded-full bg-accent-green" /> Real-time analytics
-                </span>
-                <span className="flex items-center gap-1.5">
-                  <span className="w-1.5 h-1.5 rounded-full bg-accent-purple" /> Adaptive difficulty
-                </span>
-                <span className="flex items-center gap-1.5">
-                  <span className="w-1.5 h-1.5 rounded-full bg-accent-yellow" /> Weak-area detection
-                </span>
-              </div>
-            </div>
-          )}
-
-          {/* Empty result from AI */}
-          {questions && qs.length === 0 && !loading && (
-            <div className="animate-fade-in bg-surface-700 rounded-xl border border-accent-yellow/30 flex flex-col items-center justify-center py-12 px-6">
-              <div className="text-3xl mb-3">⚠️</div>
-              <h3 className="text-base font-bold mb-1.5">No Questions Generated</h3>
-              <p className="text-sm text-muted text-center max-w-sm mb-4">
-                The AI couldn't generate questions for this topic. Try a different topic or check your backend server.
-              </p>
-              <button
-                onClick={() => setQuestions(null)}
-                className="px-4 py-2 rounded-lg bg-accent-purple/20 text-accent-purple text-sm font-semibold hover:bg-accent-purple/30 transition-all"
-              >
-                ← Back to Config
-              </button>
-            </div>
-          )}
-
-          {/* Weakness Alert */}
-          {weakFlag && (
-            <div className="animate-slide-up mt-4 bg-surface-700 rounded-xl border border-accent-red/30 p-5">
-              <div className="flex items-start gap-3">
-                <div className="w-10 h-10 rounded-xl bg-accent-red/15 flex items-center justify-center text-xl shrink-0">⚠️</div>
-                <div>
-                  <div className="text-sm font-bold text-accent-red mb-1">Weakness Detected by AI</div>
-                  <p className="text-xs text-muted leading-relaxed">
-                    Pattern of errors in <span className="text-white font-semibold">{subject} — {topic}</span>.
-                    The study planner will automatically increase revision frequency. Targeted questions queued.
-                  </p>
+            {/* Empty state */}
+            {!q && !loading && (
+              <div style={{
+                ...glass({ padding: "60px 40px" }),
+                display: "flex", flexDirection: "column", alignItems: "center", animation: "fade-in 0.4s ease",
+              }}>
+                <EmptyIllustration />
+                <h3 style={{ fontSize: 18, fontWeight: 700, fontFamily: "Manrope,sans-serif", margin: "20px 0 8px" }}>
+                  Generate Adaptive Questions
+                </h3>
+                <p style={{ fontSize: 13, color: C.textMuted, textAlign: "center", maxWidth: 340, lineHeight: 1.6, margin: "0 0 24px" }}>
+                  Select a subject and topic from the config panel, then click
+                  <span style={{ color: C.primary, fontWeight: 600 }}> ⚡ Generate Questions</span> to start AI-powered practice.
+                </p>
+                <div style={{ display: "flex", gap: 20, fontSize: 11, color: C.textMuted }}>
+                  {[
+                    { dot: C.secondary, label: "Real-time analytics" },
+                    { dot: C.primary,   label: "Adaptive difficulty" },
+                    { dot: C.tertiary,  label: "Weak-area detection" },
+                  ].map((f, i) => (
+                    <span key={i} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <span style={{ width: 6, height: 6, borderRadius: "50%", background: f.dot, flexShrink: 0, boxShadow: `0 0 6px ${f.dot}` }} />
+                      {f.label}
+                    </span>
+                  ))}
                 </div>
               </div>
-            </div>
-          )}
+            )}
+
+            {/* Empty result */}
+            {questions && qs.length === 0 && !loading && (
+              <div style={{ ...glass({ padding: "50px 40px" }), textAlign: "center", border: `1px solid ${C.tertiary}33`, animation: "fade-in 0.3s ease" }}>
+                <div style={{ fontSize: 36, marginBottom: 12 }}>⚠️</div>
+                <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 8 }}>No Questions Generated</h3>
+                <p style={{ fontSize: 13, color: C.textMuted, maxWidth: 320, margin: "0 auto 18px", lineHeight: 1.6 }}>
+                  The AI couldn't generate questions for this topic. Try a different topic or check your backend server.
+                </p>
+                <button onClick={() => setQuestions(null)} style={{ background: `${C.primary}20`, color: C.primary, border: `1px solid ${C.primary}33`, borderRadius: 9, padding: "10px 20px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+                  ← Back to Config
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
-    </div>
+    </>
   );
 }

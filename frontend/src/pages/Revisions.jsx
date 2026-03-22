@@ -1,41 +1,181 @@
-import { useState, useEffect } from "react";
-import { getDueCards, getAllCards, createCard, deleteCard, clearAllData, reviewCard } from "../lib/api";
+import { useState, useEffect, useMemo } from "react";
+import { getDueCards, getAllCards, createCard, deleteCard, clearAllData, reviewCard, getSrsStats } from "../lib/api";
 import useAppStore from "../store/useAppStore";
+
+/* ── Design tokens ──────────────────────────────────────────────── */
+const C = {
+  bg:         "#060e1f",
+  surface:    "#0f192e",
+  surfaceHi:  "#151f36",
+  surfaceTop: "#1a253e",
+  primary:    "#aba3ff",
+  primaryDim: "#6d5fef",
+  secondary:  "#23eea8",
+  tertiary:   "#ffdb8f",
+  error:      "#ff6e84",
+  textPrimary:"#dee5fd",
+  textMuted:  "#a3abc1",
+  outline:    "#40485b",
+};
+
+const glass = (extra = {}) => ({
+  background: "rgba(15,25,46,0.85)",
+  backdropFilter: "blur(20px)",
+  WebkitBackdropFilter: "blur(20px)",
+  border: `1px solid rgba(64,72,91,0.3)`,
+  borderRadius: 14,
+  ...extra,
+});
 
 const SUBJECTS = ["Physics", "Chemistry", "Biology", "Maths", "History", "Polity"];
 
 const SCORES = [
-  { val: 0, label: "Again",   color: "accent-red",    desc: "Complete blackout" },
-  { val: 2, label: "Hard",    color: "accent-yellow",  desc: "Wrong but familiar" },
-  { val: 3, label: "Good",    color: "accent-purple",  desc: "Correct with effort" },
-  { val: 4, label: "Easy",    color: "accent-blue",    desc: "Correct, some hesitation" },
-  { val: 5, label: "Perfect", color: "accent-green",   desc: "Instant recall" },
+  { val: 0, label: "Again",   color: C.error,     desc: "Blackout" },
+  { val: 2, label: "Hard",    color: C.tertiary,  desc: "Familiar" },
+  { val: 3, label: "Good",    color: C.primary,   desc: "Effort" },
+  { val: 4, label: "Easy",    color: "#4a9eff",   desc: "Hesitation" },
+  { val: 5, label: "Perfect", color: C.secondary, desc: "Instant" },
 ];
 
+/* ── Skeleton shimmer ──────────────────────────────────────────── */
+function Sk({ w = "100%", h = 18, r = 6 }) {
+  return (
+    <div style={{
+      width: w, height: h, borderRadius: r, flexShrink: 0,
+      background: `linear-gradient(90deg,${C.surface} 25%,${C.surfaceHi} 50%,${C.surface} 75%)`,
+      backgroundSize: "200% 100%", animation: "nebula-shimmer 1.6s infinite",
+    }} />
+  );
+}
+
+/* ── Stat gradient card ─────────────────────────────────────────── */
+function StatCard({ icon, label, value, sub, glow }) {
+  return (
+    <div style={{
+      ...glass({ padding: "16px 18px", flex: 1, position: "relative", overflow: "hidden" }),
+      boxShadow: `0 0 24px ${glow}18`,
+    }}>
+      <div style={{ position: "absolute", top: -16, right: -16, width: 60, height: 60, borderRadius: "50%", background: glow, opacity: 0.09, filter: "blur(18px)" }} />
+      <div style={{ fontSize: 10, color: C.textMuted, textTransform: "uppercase", letterSpacing: 1.4, marginBottom: 8 }}>{icon} {label}</div>
+      <div style={{ fontSize: 26, fontWeight: 800, color: glow, fontFamily: "Manrope,sans-serif", letterSpacing: -0.5, lineHeight: 1.1 }}>{value}</div>
+      {sub && <div style={{ fontSize: 10, color: C.textMuted, marginTop: 4 }}>{sub}</div>}
+    </div>
+  );
+}
+
+/* ── Countdown helper ───────────────────────────────────────────── */
+function formatCountdown(dueDate) {
+  const diff = new Date(dueDate) - new Date();
+  if (diff <= 0) return { label: "Due now", color: C.error, now: true };
+  const h = Math.floor(diff / 3600000);
+  const m = Math.floor((diff % 3600000) / 60000);
+  if (h === 0) return { label: `in ${m}m`, color: C.tertiary };
+  if (h < 24)  return { label: `in ${h}h ${m}m`, color: C.tertiary };
+  const d = Math.floor(h / 24);
+  return { label: d === 1 ? "Tomorrow" : `in ${d} days`, color: C.textMuted };
+}
+
+/* ── Memory Health Bar ──────────────────────────────────────────── */
+function MemoryHealthBar({ pct }) {
+  const col = pct >= 75 ? C.secondary : pct >= 50 ? C.primary : C.tertiary;
+  return (
+    <div style={{ ...glass({ padding: "16px 20px", marginBottom: 16 }) }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+        <span style={{ fontSize: 12, fontWeight: 700, color: C.textPrimary }}>🧠 Memory Health</span>
+        <span style={{ fontSize: 13, fontWeight: 800, color: col, fontFamily: "Manrope,sans-serif" }}>{pct}%</span>
+      </div>
+      <div style={{ height: 8, background: C.surfaceTop, borderRadius: 4, overflow: "hidden" }}>
+        <div style={{
+          height: "100%", width: `${pct}%`, borderRadius: 4, transition: "width 0.8s ease",
+          background: `linear-gradient(90deg,${C.primaryDim},${C.primary},${C.secondary})`,
+          boxShadow: `0 0 10px ${C.primary}66`,
+        }} />
+      </div>
+      <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6 }}>
+        {["Needs Work","Building","Good","Strong","Excellent"].map((l, i) => (
+          <span key={i} style={{ fontSize: 10, color: C.outline }}>{l}</span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ── Upcoming reviews list ──────────────────────────────────────── */
+function UpcomingList({ cards, onStartReview }) {
+  const sorted = useMemo(() =>
+    [...cards].sort((a, b) => new Date(a.due_date) - new Date(b.due_date)).slice(0, 6),
+    [cards]
+  );
+
+  return (
+    <div style={{ ...glass({ padding: "18px 20px", marginBottom: 16 }) }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+        <div style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 1.4, fontWeight: 700 }}>⏰ Upcoming Reviews</div>
+        {cards.filter(c => new Date(c.due_date) <= new Date()).length > 0 && (
+          <span style={{ fontSize: 10, fontWeight: 700, color: C.error, background: `${C.error}18`, padding: "3px 10px", borderRadius: 20 }}>
+            {cards.filter(c => new Date(c.due_date) <= new Date()).length} Due
+          </span>
+        )}
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+        {sorted.map((c, i) => {
+          const cd = formatCountdown(c.due_date);
+          return (
+            <div key={i} style={{
+              display: "flex", alignItems: "center", gap: 12,
+              padding: "10px 12px", borderRadius: 10,
+              borderLeft: cd.now ? `3px solid ${C.secondary}` : `3px solid transparent`,
+              background: cd.now ? `${C.secondary}08` : "transparent",
+              transition: "background 0.15s",
+            }}>
+              <span style={{ fontSize: 10, fontWeight: 700, color: C.primary, background: `${C.primary}18`, padding: "2px 8px", borderRadius: 5, flexShrink: 0 }}>
+                {c.subject}
+              </span>
+              <span style={{ fontSize: 12, color: C.textPrimary, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {c.topic || c.front?.substring(0, 40) || "Card"}
+              </span>
+              <span style={{ fontSize: 10, fontWeight: 600, color: cd.color, flexShrink: 0 }}>{cd.label}</span>
+              <span style={{ fontSize: 10, color: C.outline, flexShrink: 0 }}>{c.interval_days}d</span>
+            </div>
+          );
+        })}
+        {sorted.length === 0 && (
+          <p style={{ fontSize: 12, color: C.textMuted, textAlign: "center", padding: "14px 0" }}>
+            No upcoming cards. Create some flashcards to get started!
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════════ */
 export default function Revisions() {
-  const user = useAppStore(s => s.user);
+  const user   = useAppStore(s => s.user);
   const userId = user?.id;
 
-  const [tab, setTab] = useState("review"); // "review" | "manage"
+  const [tab, setTab] = useState("review");
 
-  // ── Review state ──────────────────────────────────────
-  const [dueCards, setDueCards]   = useState([]);
-  const [idx, setIdx]            = useState(0);
-  const [flipped, setFlipped]    = useState(false);
+  // Review state
+  const [dueCards,      setDueCards]      = useState([]);
+  const [idx,           setIdx]           = useState(0);
+  const [flipped,       setFlipped]       = useState(false);
   const [reviewLoading, setReviewLoading] = useState(true);
 
-  // ── Manage state ──────────────────────────────────────
-  const [allCards, setAllCards]   = useState([]);
+  // Manage state
+  const [allCards,      setAllCards]      = useState([]);
   const [manageLoading, setManageLoading] = useState(false);
-  const [showForm, setShowForm]  = useState(false);
-  const [formSubject, setFormSubject] = useState("Physics");
-  const [formTopic, setFormTopic]    = useState("");
-  const [formFront, setFormFront]    = useState("");
-  const [formBack, setFormBack]      = useState("");
-  const [saving, setSaving]          = useState(false);
-  const [confirmClear, setConfirmClear] = useState(false);
+  const [showForm,      setShowForm]      = useState(false);
+  const [formSubject,   setFormSubject]   = useState("Physics");
+  const [formTopic,     setFormTopic]     = useState("");
+  const [formFront,     setFormFront]     = useState("");
+  const [formBack,      setFormBack]      = useState("");
+  const [saving,        setSaving]        = useState(false);
+  const [confirmClear,  setConfirmClear]  = useState(false);
 
-  // ── Data fetching ─────────────────────────────────────
+  // Stats
+  const [srsStats, setSrsStats] = useState({ avg_retention: 78, streak: 0, total: 0 });
+
   const loadDueCards = async () => {
     setReviewLoading(true);
     try {
@@ -55,23 +195,39 @@ export default function Revisions() {
     setManageLoading(false);
   };
 
-  useEffect(() => { loadDueCards(); loadAllCards(); }, []);
+  const loadStats = async () => {
+    try {
+      const res = await getSrsStats(userId);
+      if (res.data) setSrsStats({
+        avg_retention: res.data.avg_score ? Math.round(res.data.avg_score * 20) : 78,
+        streak:        res.data.streak ?? 0,
+        total:         res.data.total_cards ?? 0,
+      });
+    } catch { /* keep defaults */ }
+  };
 
-  // ── Review handlers ───────────────────────────────────
-  const card = dueCards[idx];
+  useEffect(() => { loadDueCards(); loadAllCards(); loadStats(); }, []);
+
+  // ── Review handlers ───────────────────────────────────────────────
+  const card     = dueCards[idx];
   const progress = dueCards.length > 0 ? Math.round((idx / dueCards.length) * 100) : 0;
 
   const handleScore = async (quality) => {
     try { await reviewCard(userId, card.id, quality); } catch {}
     setFlipped(false);
-    if (idx + 1 >= dueCards.length) {
-      setIdx(idx + 1); // triggers "all done" state
-    } else {
-      setIdx(i => i + 1);
-    }
+    setIdx(i => i + 1);
   };
 
-  // ── Manage handlers ───────────────────────────────────
+  // ── Next review countdown ─────────────────────────────────────────
+  const nextDue = useMemo(() => {
+    const future = allCards
+      .filter(c => new Date(c.due_date) > new Date())
+      .sort((a, b) => new Date(a.due_date) - new Date(b.due_date))[0];
+    if (!future) return "No upcoming";
+    return formatCountdown(future.due_date).label;
+  }, [allCards]);
+
+  // ── Manage handlers ───────────────────────────────────────────────
   const handleCreate = async () => {
     if (!formTopic || !formFront || !formBack) return;
     setSaving(true);
@@ -79,335 +235,406 @@ export default function Revisions() {
       await createCard(userId, formSubject, formTopic, formFront, formBack);
       setFormTopic(""); setFormFront(""); setFormBack("");
       setShowForm(false);
-      loadAllCards();
-      loadDueCards();
+      loadAllCards(); loadDueCards();
     } catch (e) { console.error(e); }
     setSaving(false);
   };
 
   const handleDelete = async (cardId) => {
-    try {
-      await deleteCard(cardId);
-      setAllCards(prev => prev.filter(c => c.id !== cardId));
-      loadDueCards();
-    } catch (e) { console.error(e); }
+    try { await deleteCard(cardId); setAllCards(p => p.filter(c => c.id !== cardId)); loadDueCards(); }
+    catch (e) { console.error(e); }
   };
 
   const handleClearAll = async () => {
-    try {
-      await clearAllData(userId);
-      setAllCards([]);
-      setDueCards([]);
-      setIdx(0);
-      setConfirmClear(false);
-    } catch (e) { console.error(e); }
+    try { await clearAllData(userId); setAllCards([]); setDueCards([]); setIdx(0); setConfirmClear(false); }
+    catch (e) { console.error(e); }
   };
 
+  const memHealth = srsStats.avg_retention || 78;
+
   return (
-    <div className="px-6 py-7 max-w-5xl mx-auto">
-      {/* Header */}
-      <div className="mb-2">
-        <h1 className="text-2xl font-extrabold tracking-tight flex items-center gap-3">
-          <span className="inline-flex items-center justify-center w-9 h-9 rounded-lg bg-accent-purple/20 text-lg">🧠</span>
-          Spaced Repetition
-        </h1>
-        <p className="text-muted text-sm mt-1">SM-2 algorithm — forgetting curve based revision scheduling</p>
-      </div>
+    <>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&family=Inter:wght@400;500;600&display=swap');
+        @keyframes nebula-shimmer { 0%{background-position:200% 0} 100%{background-position:-200% 0} }
+        @keyframes fade-in { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:none} }
+        @keyframes flip-reveal { from{opacity:0;transform:scale(0.97)} to{opacity:1;transform:scale(1)} }
+        .score-btn:hover { transform: scale(1.04); }
+        .cta-btn:hover { filter: brightness(1.1); transform: scale(1.02); }
+        .card-row:hover { background: ${C.surfaceHi} !important; }
+        ::-webkit-scrollbar { width: 4px; } ::-webkit-scrollbar-thumb { background: ${C.outline}66; border-radius: 2px; }
+      `}</style>
 
-      {/* Tabs */}
-      <div className="flex gap-1 mt-5 mb-6 bg-surface-700 rounded-xl p-1 w-fit">
-        {[
-          { key: "review", label: "📖 Review Cards", count: dueCards.length },
-          { key: "manage", label: "⚙️ Manage Cards", count: allCards.length },
-        ].map(t => (
-          <button
-            key={t.key}
-            onClick={() => setTab(t.key)}
-            className={`px-5 py-2.5 rounded-lg text-sm font-semibold transition-all flex items-center gap-2 ${
-              tab === t.key
-                ? "bg-accent-purple text-white shadow-lg shadow-accent-purple/20"
-                : "text-muted hover:text-white"
-            }`}
-          >
-            {t.label}
-            <span className={`text-[10px] px-1.5 py-0.5 rounded-md font-bold ${
-              tab === t.key ? "bg-white/20" : "bg-surface-500"
-            }`}>{t.count}</span>
-          </button>
-        ))}
-      </div>
+      <div style={{ padding: "24px 28px", fontFamily: "Inter,sans-serif", color: C.textPrimary }}>
 
-      {/* ════════════════ REVIEW TAB ════════════════ */}
-      {tab === "review" && (
-        <div className="animate-fade-in">
-          {reviewLoading ? (
-            <div className="bg-surface-700 rounded-xl border border-surface-500 p-6 space-y-4">
-              <div className="h-4 w-32 rounded bg-gradient-to-r from-surface-500 via-surface-400 to-surface-500 bg-[length:200%_100%] animate-shimmer" />
-              <div className="h-40 rounded-xl bg-gradient-to-r from-surface-500 via-surface-400 to-surface-500 bg-[length:200%_100%] animate-shimmer" />
-              <div className="h-12 rounded-lg bg-gradient-to-r from-surface-500 via-surface-400 to-surface-500 bg-[length:200%_100%] animate-shimmer" />
+        {/* ── Header ───────────────────────────────────────────── */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
+          <div>
+            <h1 style={{ fontSize: 24, fontWeight: 800, letterSpacing: -0.5, fontFamily: "Manrope,sans-serif", margin: 0 }}>
+              🧠 Spaced Repetition
+            </h1>
+            <p style={{ color: C.textMuted, fontSize: 12, margin: "5px 0 0" }}>SM-2 algorithm — forgetting curve based revision scheduling</p>
+          </div>
+          {srsStats.streak > 0 && (
+            <div style={{ ...glass({ padding: "8px 16px" }), display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ fontSize: 16 }}>🔥</span>
+              <span style={{ fontSize: 12, fontWeight: 700, color: C.tertiary }}>{srsStats.streak} Day Streak</span>
             </div>
-          ) : dueCards.length === 0 ? (
-            /* Empty state */
-            <div className="bg-surface-700 rounded-xl border border-surface-500 flex flex-col items-center py-16 px-6">
-              <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-accent-green/20 to-accent-blue/20 flex items-center justify-center text-4xl mb-5">✅</div>
-              <h3 className="text-lg font-bold mb-2">No Cards Due for Review</h3>
-              <p className="text-sm text-muted text-center max-w-md mb-6">
-                {allCards.length === 0
-                  ? "You haven't created any flashcards yet. Go to the Manage tab to add some!"
-                  : "All caught up! Your next reviews are scheduled by the SM-2 algorithm."
-                }
-              </p>
-              {allCards.length === 0 && (
-                <button onClick={() => setTab("manage")} className="px-5 py-2.5 rounded-xl bg-accent-purple text-white text-sm font-semibold hover:bg-accent-purple/80 transition-all">
-                  ➕ Create Your First Card
-                </button>
-              )}
-            </div>
-          ) : idx >= dueCards.length ? (
-            /* All reviewed */
-            <div className="bg-surface-700 rounded-xl border border-accent-green/30 flex flex-col items-center py-16 px-6 animate-slide-up">
-              <div className="text-5xl mb-4">🎉</div>
-              <h2 className="text-xl font-bold text-accent-green mb-2">All Cards Reviewed!</h2>
-              <p className="text-sm text-muted mb-6">Great session. Your spaced repetition intervals have been updated.</p>
-              <button
-                onClick={() => { setIdx(0); setFlipped(false); loadDueCards(); }}
-                className="px-5 py-2.5 rounded-xl bg-accent-purple text-white text-sm font-semibold hover:bg-accent-purple/80 transition-all"
-              >
-                🔄 Restart Session
-              </button>
-            </div>
-          ) : (
-            /* Active review */
-            <div className="space-y-4">
-              {/* Progress */}
-              <div className="bg-surface-700 rounded-xl border border-surface-500 p-4">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs font-bold text-accent-purple bg-accent-purple/15 px-2.5 py-1 rounded-md">
-                    Card {idx + 1} of {dueCards.length}
-                  </span>
-                  <span className="text-xs text-muted font-mono">{dueCards.length - idx} remaining</span>
-                </div>
-                <div className="h-1.5 bg-surface-500 rounded-full overflow-hidden">
-                  <div className="h-full bg-gradient-to-r from-accent-purple to-accent-blue rounded-full transition-all duration-500" style={{ width: `${progress}%` }} />
-                </div>
+          )}
+        </div>
+
+        {/* ── Tabs ────────────────────────────────────────────── */}
+        <div style={{ display: "flex", gap: 3, background: C.surfaceTop, borderRadius: 10, padding: 4, width: "fit-content", marginBottom: 24 }}>
+          {[
+            { key: "review", label: "📖 Review Cards", count: dueCards.length },
+            { key: "manage", label: "⚙️ Manage Cards", count: allCards.length },
+          ].map(t => (
+            <button
+              key={t.key}
+              onClick={() => setTab(t.key)}
+              style={{
+                padding: "9px 18px", borderRadius: 8, border: "none", cursor: "pointer",
+                fontSize: 13, fontWeight: 600, transition: "all 0.2s",
+                background: tab === t.key ? `linear-gradient(135deg,${C.primary},${C.primaryDim})` : "transparent",
+                color: tab === t.key ? "#fff" : C.textMuted,
+                boxShadow: tab === t.key ? `0 2px 14px ${C.primary}44` : "none",
+                display: "flex", alignItems: "center", gap: 8,
+              }}
+            >
+              {t.label}
+              <span style={{
+                fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 10,
+                background: tab === t.key ? "rgba(255,255,255,.2)" : C.surfaceTop,
+                color: tab === t.key ? "#fff" : C.textMuted,
+              }}>{t.count}</span>
+            </button>
+          ))}
+        </div>
+
+        {/* ══════════════ REVIEW TAB ══════════════ */}
+        {tab === "review" && (
+          <div style={{ animation: "fade-in 0.3s ease" }}>
+            {reviewLoading ? (
+              <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                <div style={{ display: "flex", gap: 14 }}><Sk w="33%" h={90} r={14} /><Sk w="33%" h={90} r={14} /><Sk w="33%" h={90} r={14} /></div>
+                <Sk h={70} r={14} />
+                <Sk h={52} r={12} />
+                <Sk h={220} r={14} />
               </div>
-
-              {/* Flip Card */}
-              <div
-                onClick={() => setFlipped(p => !p)}
-                className={`rounded-2xl p-8 text-center cursor-pointer min-h-[220px] flex flex-col items-center justify-center transition-all duration-300 border ${
-                  flipped
-                    ? "bg-surface-700 border-accent-purple/40 shadow-lg shadow-accent-purple/10"
-                    : "bg-surface-600 border-surface-500 hover:border-muted/40"
-                }`}
-              >
-                <div className="text-[10px] font-bold text-muted uppercase tracking-widest mb-4">
-                  {flipped ? "ANSWER — tap to flip back" : "QUESTION — tap to reveal answer"}
+            ) : (
+              <>
+                {/* Stat cards */}
+                <div style={{ display: "flex", gap: 14, marginBottom: 16 }}>
+                  <StatCard icon="📚" label="Cards Due"     value={dueCards.length}        sub={dueCards.length > 0 ? "Needs review today" : "All caught up!"}  glow={C.error}     />
+                  <StatCard icon="🧠" label="Avg Retention" value={`${memHealth}%`}         sub="Memory health score"                                           glow={C.secondary} />
+                  <StatCard icon="⏰" label="Next Review"   value={nextDue}                 sub="Upcoming scheduled"                                            glow={C.tertiary}  />
                 </div>
-                {!flipped ? (
-                  <>
-                    <div className="text-lg font-bold leading-relaxed mb-3">{card.front}</div>
-                    <div className="flex gap-2 text-[11px]">
-                      <span className="px-2 py-1 rounded-md bg-accent-purple/15 text-accent-purple font-semibold">{card.subject}</span>
-                      <span className="px-2 py-1 rounded-md bg-surface-500 text-muted">{card.topic}</span>
-                    </div>
-                  </>
+
+                {/* Memory health */}
+                <MemoryHealthBar pct={memHealth} />
+
+                {/* Quick review CTA */}
+                {dueCards.length > 0 && idx < dueCards.length && (
+                  <button
+                    className="cta-btn"
+                    onClick={() => { setIdx(0); setFlipped(false); }}
+                    style={{
+                      width: "100%", padding: "14px", marginBottom: 16, border: "none", borderRadius: 12,
+                      background: `linear-gradient(135deg,${C.primary},${C.primaryDim})`,
+                      color: "#fff", fontSize: 14, fontWeight: 800, cursor: "pointer",
+                      letterSpacing: -0.3, fontFamily: "Manrope,sans-serif",
+                      boxShadow: `0 6px 24px ${C.primary}44`, transition: "all 0.2s",
+                    }}
+                  >
+                    ⚡ Start Quick Review ({dueCards.length} cards)
+                  </button>
+                )}
+
+                {/* Upcoming reviews */}
+                <UpcomingList cards={allCards} onStartReview={() => setTab("review")} />
+
+                {/* ── Active Review Session ─────────────────── */}
+                {dueCards.length === 0 ? (
+                  /* Empty state */
+                  <div style={{ ...glass({ padding: "56px 40px" }), textAlign: "center", animation: "fade-in 0.4s ease" }}>
+                    <div style={{ fontSize: 54, marginBottom: 16 }}>✅</div>
+                    <h3 style={{ fontSize: 20, fontWeight: 800, fontFamily: "Manrope,sans-serif", margin: "0 0 8px", color: C.secondary }}>
+                      {allCards.length === 0 ? "No Flashcards Yet" : "All Caught Up!"}
+                    </h3>
+                    <p style={{ fontSize: 13, color: C.textMuted, maxWidth: 360, margin: "0 auto 20px", lineHeight: 1.7 }}>
+                      {allCards.length === 0
+                        ? "You haven't created any flashcards. Go to Manage Cards to get started!"
+                        : `All reviews done! Your next session is ${nextDue}. SM-2 intervals have been updated.`}
+                    </p>
+                    {allCards.length === 0 ? (
+                      <button
+                        className="cta-btn"
+                        onClick={() => setTab("manage")}
+                        style={{ background: `linear-gradient(135deg,${C.primary},${C.primaryDim})`, color: "#fff", border: "none", borderRadius: 10, padding: "11px 24px", fontSize: 13, fontWeight: 700, cursor: "pointer", transition: "all 0.2s" }}
+                      >
+                        ➕ Create Your First Card
+                      </button>
+                    ) : (
+                      <div style={{ ...glass({ padding: "14px 20px", display: "inline-flex", alignItems: "center", gap: 10 }) }}>
+                        <span style={{ fontSize: 22 }}>⏰</span>
+                        <div style={{ textAlign: "left" }}>
+                          <div style={{ fontSize: 12, color: C.textMuted }}>Next Review</div>
+                          <div style={{ fontSize: 16, fontWeight: 800, color: C.tertiary, fontFamily: "Manrope,sans-serif" }}>{nextDue}</div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ) : idx >= dueCards.length ? (
+                  /* All reviewed */
+                  <div style={{ ...glass({ padding: "52px 40px" }), textAlign: "center", border: `1px solid ${C.secondary}33`, animation: "fade-in 0.4s ease" }}>
+                    <div style={{ fontSize: 52, marginBottom: 12 }}>🎉</div>
+                    <h2 style={{ fontSize: 22, fontWeight: 800, color: C.secondary, fontFamily: "Manrope,sans-serif", margin: "0 0 8px" }}>All Cards Reviewed!</h2>
+                    <p style={{ fontSize: 13, color: C.textMuted, maxWidth: 340, margin: "0 auto 24px", lineHeight: 1.7 }}>
+                      Great session! SM-2 intervals have been updated based on your recall ratings.
+                    </p>
+                    <button
+                      className="cta-btn"
+                      onClick={() => { setIdx(0); setFlipped(false); loadDueCards(); }}
+                      style={{ background: `linear-gradient(135deg,${C.primary},${C.primaryDim})`, color: "#fff", border: "none", borderRadius: 10, padding: "11px 24px", fontSize: 13, fontWeight: 700, cursor: "pointer", transition: "all 0.2s" }}
+                    >
+                      🔄 Restart Session
+                    </button>
+                  </div>
                 ) : (
-                  <>
-                    <div className="text-base text-accent-purple font-semibold leading-relaxed mb-2">{card.back}</div>
-                    <div className="text-xs text-muted mt-2">Rate your recall below</div>
-                  </>
+                  /* Active session */
+                  <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                    {/* Progress bar */}
+                    <div style={{ ...glass({ padding: "14px 18px" }) }}>
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: C.primary, background: `${C.primary}18`, padding: "3px 10px", borderRadius: 6 }}>
+                          Card {idx + 1} of {dueCards.length}
+                        </span>
+                        <span style={{ fontSize: 11, color: C.textMuted, fontFamily: "monospace" }}>{dueCards.length - idx} remaining · {progress}%</span>
+                      </div>
+                      <div style={{ height: 7, background: C.surfaceTop, borderRadius: 4, overflow: "hidden" }}>
+                        <div style={{
+                          height: "100%", width: `${progress}%`, borderRadius: 4, transition: "width 0.5s ease",
+                          background: `linear-gradient(90deg,${C.primaryDim},${C.primary},${C.secondary})`,
+                          boxShadow: `0 0 10px ${C.primary}66`,
+                        }} />
+                      </div>
+                    </div>
+
+                    {/* Flip card */}
+                    <div
+                      onClick={() => setFlipped(p => !p)}
+                      style={{
+                        ...glass({
+                          padding: "36px 32px", minHeight: 200,
+                          display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+                          cursor: "pointer", textAlign: "center", transition: "all 0.3s",
+                          borderRadius: 16,
+                        }),
+                        border: flipped ? `1px solid ${C.primary}44` : `1px solid ${C.outline}33`,
+                        boxShadow: flipped ? `0 0 32px ${C.primary}18` : "none",
+                        background: flipped
+                          ? "linear-gradient(135deg,rgba(171,163,255,.06),rgba(109,95,239,.04))"
+                          : "rgba(15,25,46,0.85)",
+                      }}
+                    >
+                      <div style={{ fontSize: 10, color: C.textMuted, textTransform: "uppercase", letterSpacing: 1.4, marginBottom: 16, fontWeight: 700 }}>
+                        {flipped ? "Answer — tap to flip back" : "Question — tap to reveal answer"}
+                      </div>
+
+                      {!flipped ? (
+                        <>
+                          <div style={{ fontSize: 17, fontWeight: 700, lineHeight: 1.6, color: C.textPrimary, marginBottom: 14 }}>{card.front}</div>
+                          <div style={{ display: "flex", gap: 8 }}>
+                            <span style={{ fontSize: 11, fontWeight: 600, padding: "3px 10px", borderRadius: 6, background: `${C.primary}18`, color: C.primary }}>{card.subject}</span>
+                            <span style={{ fontSize: 11, padding: "3px 10px", borderRadius: 6, background: C.surfaceTop, color: C.textMuted }}>{card.topic}</span>
+                          </div>
+                        </>
+                      ) : (
+                        <div style={{ animation: "flip-reveal 0.25s ease" }}>
+                          <div style={{ fontSize: 16, fontWeight: 600, color: C.primary, lineHeight: 1.6, marginBottom: 6 }}>{card.back}</div>
+                          <div style={{ fontSize: 11, color: C.textMuted }}>Rate your recall below ↓</div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Score buttons */}
+                    {flipped ? (
+                      <div style={{ animation: "fade-in 0.25s ease" }}>
+                        <div style={{ fontSize: 11, color: C.textMuted, textAlign: "center", marginBottom: 10 }}>How well did you remember?</div>
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 8 }}>
+                          {SCORES.map(sc => (
+                            <button
+                              key={sc.val}
+                              className="score-btn"
+                              onClick={() => handleScore(sc.val)}
+                              style={{
+                                padding: "12px 6px", borderRadius: 10, cursor: "pointer", textAlign: "center",
+                                background: `${sc.color}12`, border: `1px solid ${sc.color}33`,
+                                transition: "all 0.15s",
+                              }}
+                            >
+                              <div style={{ fontSize: 13, fontWeight: 800, color: sc.color, fontFamily: "Manrope,sans-serif" }}>{sc.label}</div>
+                              <div style={{ fontSize: 10, color: C.textMuted, marginTop: 3 }}>{sc.desc}</div>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    ) : (
+                      <div style={{ textAlign: "center", fontSize: 12, color: C.textMuted }}>
+                        👆 Tap the card to reveal the answer
+                      </div>
+                    )}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        )}
+
+        {/* ══════════════ MANAGE TAB ══════════════ */}
+        {tab === "manage" && (
+          <div style={{ animation: "fade-in 0.3s ease" }}>
+            {/* Action bar */}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+              <div style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 1.4, fontWeight: 700 }}>
+                📚 Your Flashcards ({allCards.length})
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button
+                  className="cta-btn"
+                  onClick={() => setShowForm(!showForm)}
+                  style={{ background: `linear-gradient(135deg,${C.primary},${C.primaryDim})`, color: "#fff", border: "none", borderRadius: 9, padding: "9px 16px", fontSize: 12, fontWeight: 700, cursor: "pointer", transition: "all 0.2s" }}
+                >
+                  ➕ Add Card
+                </button>
+                {allCards.length > 0 && (
+                  <button
+                    onClick={() => setConfirmClear(true)}
+                    style={{ background: `${C.error}15`, color: C.error, border: `1px solid ${C.error}33`, borderRadius: 9, padding: "9px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}
+                  >
+                    🗑️ Clear All
+                  </button>
                 )}
               </div>
+            </div>
 
-              {/* Score Buttons */}
-              {flipped ? (
-                <div className="animate-fade-in">
-                  <div className="text-xs text-muted text-center mb-3">How well did you remember this?</div>
-                  <div className="grid grid-cols-5 gap-2">
-                    {SCORES.map(sc => (
-                      <button
-                        key={sc.val}
-                        onClick={() => handleScore(sc.val)}
-                        className={`rounded-xl p-3 border transition-all hover:scale-[1.03] active:scale-95 text-center bg-${sc.color}/10 border-${sc.color}/30 hover:border-${sc.color}/60`}
-                      >
-                        <div className={`text-sm font-bold text-${sc.color}`}>{sc.label}</div>
-                        <div className="text-[10px] text-muted mt-0.5">{sc.desc}</div>
+            {/* Confirm clear */}
+            {confirmClear && (
+              <div style={{ ...glass({ padding: "18px 20px", marginBottom: 16 }), border: `1px solid ${C.error}44`, animation: "fade-in 0.2s ease" }}>
+                <div style={{ display: "flex", gap: 12 }}>
+                  <div style={{ width: 38, height: 38, borderRadius: 10, background: `${C.error}15`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, flexShrink: 0 }}>⚠️</div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: C.error, marginBottom: 6 }}>Delete ALL data permanently?</div>
+                    <p style={{ fontSize: 12, color: C.textMuted, marginBottom: 12, lineHeight: 1.6 }}>
+                      This will remove all flashcards, attempts, study plans and analytics. Cannot be undone.
+                    </p>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <button onClick={handleClearAll} style={{ background: C.error, color: "#fff", border: "none", borderRadius: 8, padding: "8px 16px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+                        Yes, Delete Everything
                       </button>
-                    ))}
-                  </div>
-                </div>
-              ) : (
-                <div className="text-center text-muted text-xs">👆 Tap the card to reveal the answer</div>
-              )}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ════════════════ MANAGE TAB ════════════════ */}
-      {tab === "manage" && (
-        <div className="animate-fade-in space-y-5">
-          {/* Action bar */}
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-bold text-muted uppercase tracking-widest flex items-center gap-2">
-              📚 Your Flashcards ({allCards.length})
-            </h3>
-            <div className="flex gap-2">
-              <button
-                onClick={() => setShowForm(!showForm)}
-                className="px-4 py-2 rounded-lg bg-accent-purple text-white text-sm font-semibold hover:bg-accent-purple/80 transition-all active:scale-95"
-              >
-                ➕ Add Card
-              </button>
-              {allCards.length > 0 && (
-                <button
-                  onClick={() => setConfirmClear(true)}
-                  className="px-4 py-2 rounded-lg bg-accent-red/10 text-accent-red border border-accent-red/30 text-sm font-semibold hover:bg-accent-red/20 transition-all active:scale-95"
-                >
-                  🗑️ Clear All
-                </button>
-              )}
-            </div>
-          </div>
-
-          {/* Confirm clear dialog */}
-          {confirmClear && (
-            <div className="animate-fade-in bg-surface-700 rounded-xl border border-accent-red/40 p-5">
-              <div className="flex items-start gap-3">
-                <div className="w-10 h-10 rounded-xl bg-accent-red/15 flex items-center justify-center text-xl shrink-0">⚠️</div>
-                <div className="flex-1">
-                  <div className="text-sm font-bold text-accent-red mb-1">Delete ALL data?</div>
-                  <p className="text-xs text-muted mb-4">This will permanently remove all your flashcards, attempt history, study plans, and weak topic analytics. This action cannot be undone.</p>
-                  <div className="flex gap-2">
-                    <button onClick={handleClearAll} className="px-4 py-2 rounded-lg bg-accent-red text-white text-sm font-bold hover:bg-accent-red/80 transition-all">
-                      Yes, Delete Everything
-                    </button>
-                    <button onClick={() => setConfirmClear(false)} className="px-4 py-2 rounded-lg bg-surface-500 text-muted text-sm font-semibold hover:text-white transition-all">
-                      Cancel
-                    </button>
+                      <button onClick={() => setConfirmClear(false)} style={{ background: C.surfaceTop, color: C.textMuted, border: "none", borderRadius: 8, padding: "8px 16px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+                        Cancel
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
-          )}
+            )}
 
-          {/* Add Card Form */}
-          {showForm && (
-            <div className="animate-slide-up bg-surface-700 rounded-xl border border-accent-purple/30 p-5 space-y-4">
-              <h4 className="text-xs font-bold text-accent-purple uppercase tracking-widest">New Flashcard</h4>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-[11px] text-muted mb-1.5">Subject</label>
-                  <select
-                    value={formSubject}
-                    onChange={e => setFormSubject(e.target.value)}
-                    className="w-full bg-surface-600 border border-surface-500 rounded-lg text-[13px] text-white px-3 py-2.5 outline-none focus:border-accent-purple/60 transition-colors"
+            {/* Add Card Form */}
+            {showForm && (
+              <div style={{ ...glass({ padding: "20px 22px", marginBottom: 16 }), border: `1px solid ${C.primary}33`, animation: "fade-in 0.25s ease" }}>
+                <div style={{ fontSize: 10, color: C.primary, textTransform: "uppercase", letterSpacing: 1.4, fontWeight: 700, marginBottom: 14 }}>New Flashcard</div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+                  <div>
+                    <div style={{ fontSize: 10, color: C.textMuted, marginBottom: 6, textTransform: "uppercase", letterSpacing: 1 }}>Subject</div>
+                    <select value={formSubject} onChange={e => setFormSubject(e.target.value)} style={{ width: "100%", padding: "9px 12px", background: C.surfaceTop, border: "none", borderRadius: 8, color: C.textPrimary, fontSize: 13, outline: "none" }}>
+                      {SUBJECTS.map(s => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 10, color: C.textMuted, marginBottom: 6, textTransform: "uppercase", letterSpacing: 1 }}>Topic</div>
+                    <input value={formTopic} onChange={e => setFormTopic(e.target.value)} placeholder="e.g. Thermodynamics" style={{ width: "100%", padding: "9px 12px", background: C.surfaceTop, border: "none", borderRadius: 8, color: C.textPrimary, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
+                  </div>
+                </div>
+                <div style={{ marginBottom: 12 }}>
+                  <div style={{ fontSize: 10, color: C.textMuted, marginBottom: 6, textTransform: "uppercase", letterSpacing: 1 }}>Front (Question)</div>
+                  <textarea value={formFront} onChange={e => setFormFront(e.target.value)} rows={2} placeholder="What is the first law of thermodynamics?" style={{ width: "100%", padding: "9px 12px", background: C.surfaceTop, border: "none", borderRadius: 8, color: C.textPrimary, fontSize: 13, outline: "none", resize: "none", boxSizing: "border-box" }} />
+                </div>
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ fontSize: 10, color: C.textMuted, marginBottom: 6, textTransform: "uppercase", letterSpacing: 1 }}>Back (Answer)</div>
+                  <textarea value={formBack} onChange={e => setFormBack(e.target.value)} rows={2} placeholder="Energy cannot be created or destroyed. ΔU = Q − W" style={{ width: "100%", padding: "9px 12px", background: C.surfaceTop, border: "none", borderRadius: 8, color: C.textPrimary, fontSize: 13, outline: "none", resize: "none", boxSizing: "border-box" }} />
+                </div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button
+                    className="cta-btn"
+                    onClick={handleCreate}
+                    disabled={saving || !formTopic || !formFront || !formBack}
+                    style={{ background: `linear-gradient(135deg,${C.primary},${C.primaryDim})`, color: "#fff", border: "none", borderRadius: 9, padding: "10px 20px", fontSize: 13, fontWeight: 700, cursor: "pointer", opacity: saving || !formTopic || !formFront || !formBack ? 0.5 : 1, transition: "all 0.2s" }}
                   >
-                    {SUBJECTS.map(s => <option key={s} value={s}>{s}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-[11px] text-muted mb-1.5">Topic</label>
-                  <input
-                    value={formTopic}
-                    onChange={e => setFormTopic(e.target.value)}
-                    placeholder="e.g. Thermodynamics"
-                    className="w-full bg-surface-600 border border-surface-500 rounded-lg text-[13px] text-white px-3 py-2.5 outline-none focus:border-accent-purple/60 transition-colors placeholder:text-muted/60"
-                  />
+                    {saving ? "Saving…" : "💾 Save Card"}
+                  </button>
+                  <button onClick={() => setShowForm(false)} style={{ background: C.surfaceTop, color: C.textMuted, border: "none", borderRadius: 9, padding: "10px 16px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Cancel</button>
                 </div>
               </div>
-              <div>
-                <label className="block text-[11px] text-muted mb-1.5">Front (Question)</label>
-                <textarea
-                  value={formFront}
-                  onChange={e => setFormFront(e.target.value)}
-                  rows={2}
-                  placeholder="What is the first law of thermodynamics?"
-                  className="w-full bg-surface-600 border border-surface-500 rounded-lg text-[13px] text-white px-3 py-2.5 outline-none focus:border-accent-purple/60 transition-colors placeholder:text-muted/60 resize-none"
-                />
-              </div>
-              <div>
-                <label className="block text-[11px] text-muted mb-1.5">Back (Answer)</label>
-                <textarea
-                  value={formBack}
-                  onChange={e => setFormBack(e.target.value)}
-                  rows={2}
-                  placeholder="Energy cannot be created or destroyed, only transferred. ΔU = Q − W"
-                  className="w-full bg-surface-600 border border-surface-500 rounded-lg text-[13px] text-white px-3 py-2.5 outline-none focus:border-accent-purple/60 transition-colors placeholder:text-muted/60 resize-none"
-                />
-              </div>
-              <div className="flex gap-2 pt-1">
-                <button
-                  onClick={handleCreate}
-                  disabled={saving || !formTopic || !formFront || !formBack}
-                  className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-accent-purple to-accent-blue text-white text-sm font-bold transition-all hover:shadow-lg hover:shadow-accent-purple/25 active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  {saving ? "Saving…" : "💾 Save Card"}
-                </button>
-                <button
-                  onClick={() => setShowForm(false)}
-                  className="px-4 py-2.5 rounded-xl bg-surface-500 text-muted text-sm font-semibold hover:text-white transition-all"
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
-          )}
+            )}
 
-          {/* Cards List */}
-          {manageLoading ? (
-            <div className="space-y-3">
-              {[1,2,3].map(i => (
-                <div key={i} className="h-20 rounded-xl bg-gradient-to-r from-surface-500 via-surface-400 to-surface-500 bg-[length:200%_100%] animate-shimmer" />
-              ))}
-            </div>
-          ) : allCards.length === 0 ? (
-            <div className="bg-surface-700 rounded-xl border border-surface-500 flex flex-col items-center py-16 px-6">
-              <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-accent-purple/20 to-accent-blue/20 flex items-center justify-center text-4xl mb-5">📝</div>
-              <h3 className="text-lg font-bold mb-2">No Flashcards Yet</h3>
-              <p className="text-sm text-muted text-center max-w-md mb-6">
-                Create your own flashcards to start spaced repetition practice. Click "Add Card" above to get started.
-              </p>
-            </div>
-          ) : (
-            <div className="space-y-2">
-              {allCards.map((c, i) => {
-                const isDue = new Date(c.due_date) <= new Date();
-                return (
-                  <div key={c.id} className="group bg-surface-700 rounded-xl border border-surface-500 px-5 py-4 flex items-start gap-4 hover:border-muted/40 transition-all">
-                    <div className="w-8 h-8 rounded-lg bg-surface-500 flex items-center justify-center text-xs font-bold text-muted shrink-0 mt-0.5">
-                      {i + 1}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-accent-purple/15 text-accent-purple">{c.subject}</span>
-                        <span className="text-[10px] px-2 py-0.5 rounded-md bg-surface-500 text-muted">{c.topic}</span>
-                        {isDue && <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-accent-red/15 text-accent-red">DUE</span>}
-                      </div>
-                      <div className="text-sm font-medium truncate">{c.front}</div>
-                      <div className="text-xs text-muted truncate mt-0.5">{c.back}</div>
-                      <div className="flex gap-3 mt-1.5 text-[10px] text-muted">
-                        <span>EF: {c.ease_factor?.toFixed(1)}</span>
-                        <span>Interval: {c.interval_days}d</span>
-                        <span>Reps: {c.repetitions}</span>
-                        <span>Due: {c.due_date}</span>
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => handleDelete(c.id)}
-                      className="shrink-0 w-8 h-8 rounded-lg bg-surface-500 flex items-center justify-center text-muted hover:bg-accent-red/20 hover:text-accent-red transition-all opacity-0 group-hover:opacity-100"
-                      title="Delete card"
+            {/* Cards list */}
+            {manageLoading ? (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {[1,2,3].map(i => <Sk key={i} h={80} r={12} />)}
+              </div>
+            ) : allCards.length === 0 ? (
+              <div style={{ ...glass({ padding: "52px 40px" }), textAlign: "center" }}>
+                <div style={{ fontSize: 44, marginBottom: 14 }}>📝</div>
+                <h3 style={{ fontSize: 18, fontWeight: 700, fontFamily: "Manrope,sans-serif", margin: "0 0 8px" }}>No Flashcards Yet</h3>
+                <p style={{ fontSize: 13, color: C.textMuted, maxWidth: 320, margin: "0 auto" }}>Create flashcards to start spaced repetition practice. Click "Add Card" above.</p>
+              </div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {allCards.map((c, i) => {
+                  const isDue = new Date(c.due_date) <= new Date();
+                  return (
+                    <div
+                      key={c.id}
+                      className="card-row"
+                      style={{
+                        ...glass({ padding: "14px 18px", borderRadius: 12 }),
+                        display: "flex", alignItems: "flex-start", gap: 14, transition: "background 0.15s",
+                        borderLeft: isDue ? `3px solid ${C.error}` : `3px solid ${C.outline}33`,
+                      }}
                     >
-                      🗑️
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      )}
-    </div>
+                      <div style={{ width: 30, height: 30, borderRadius: 8, background: C.surfaceTop, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: C.textMuted, flexShrink: 0 }}>{i + 1}</div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 5 }}>
+                          <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 5, background: `${C.primary}18`, color: C.primary }}>{c.subject}</span>
+                          <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 5, background: C.surfaceTop, color: C.textMuted }}>{c.topic}</span>
+                          {isDue && <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 5, background: `${C.error}18`, color: C.error }}>DUE</span>}
+                        </div>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: C.textPrimary, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.front}</div>
+                        <div style={{ fontSize: 11, color: C.textMuted, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.back}</div>
+                        <div style={{ display: "flex", gap: 12, marginTop: 6, fontSize: 10, color: C.outline }}>
+                          <span>EF: {c.ease_factor?.toFixed(1)}</span>
+                          <span>Interval: {c.interval_days}d</span>
+                          <span>Reps: {c.repetitions}</span>
+                          <span>Due: {c.due_date?.split("T")[0]}</span>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => handleDelete(c.id)}
+                        style={{ width: 32, height: 32, borderRadius: 8, border: "none", background: "transparent", cursor: "pointer", color: C.textMuted, fontSize: 14, flexShrink: 0, transition: "all 0.15s" }}
+                        onMouseEnter={e => { e.currentTarget.style.background = `${C.error}20`; e.currentTarget.style.color = C.error; }}
+                        onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = C.textMuted; }}
+                        title="Delete card"
+                      >🗑️</button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </>
   );
 }
