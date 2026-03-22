@@ -34,7 +34,7 @@ const EXAM_SUBJECTS = {
 
 export default function Dashboard() {
   const user = useAppStore((s) => s.user);
-  const userId = user?.id || "demo-user-001";
+  const userId = user?.id;
   const userName = user?.name || "Student";
   const storeExamType = useAppStore((s) => s.examType) || "JEE";
 

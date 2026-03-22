@@ -1,10 +1,14 @@
 import { useState, useEffect } from "react";
-import { generateQuestions, submitAnswer, getWeakAreas, DEMO_USER } from "../lib/api";
+import { generateQuestions, submitAnswer, getWeakAreas } from "../lib/api";
+import useAppStore from "../store/useAppStore";
 
 const SUBJECTS = ["Physics", "Chemistry", "Biology", "Maths", "History", "Polity"];
 const DIFFICULTIES = ["Easy", "Medium", "Hard"];
 
 export default function Practice() {
+  const user = useAppStore(s => s.user);
+  const userId = user?.id;
+
   const [subject,    setSubject]    = useState("Physics");
   const [topic,      setTopic]      = useState("");
   const [difficulty, setDifficulty] = useState("Medium");
@@ -23,7 +27,7 @@ export default function Practice() {
   useEffect(() => {
     (async () => {
       try {
-        const res = await getWeakAreas(DEMO_USER);
+        const res = await getWeakAreas(userId);
         if (res.data?.weak_areas) setWeakTopics(res.data.weak_areas.slice(0, 5));
       } catch { /* analytics not ready yet */ }
     })();
@@ -70,7 +74,7 @@ export default function Practice() {
     setStats(newStats);
     if (!correct && newStats.wrong >= 2) setWeakFlag(true);
     try {
-      const res = await submitAnswer(DEMO_USER, q.id, q.question, opt, q.answer, timeSec, subject, topic);
+      const res = await submitAnswer(userId, q.id, q.question, opt, q.answer, timeSec, subject, topic);
       if (res.data?.flashcard_generated) {
         setGeneratedCard(res.data.flashcard_generated);
       }
@@ -337,8 +341,13 @@ export default function Practice() {
                       Question {qIdx + 1} of {qs.length}
                     </span>
                     <span className="text-[10px] text-muted bg-surface-500 px-2 py-1 rounded-md">
-                      {subject} · {topic} · {difficulty}
+                      {subject} · {topic}
                     </span>
+                    {q.concept_tested && (
+                      <span className="text-[10px] text-accent-blue bg-accent-blue/15 px-2 py-1 rounded-md font-semibold border border-accent-blue/30">
+                        Concept: {q.concept_tested}
+                      </span>
+                    )}
                   </div>
                   <span className="text-xs text-muted font-mono">{progressPct}%</span>
                 </div>
@@ -393,12 +402,14 @@ export default function Practice() {
                         ? "bg-accent-green/5 border-accent-green/30"
                         : "bg-accent-red/5 border-accent-red/30"
                     }`}>
-                      <div className={`text-sm font-bold mb-1.5 ${
+                      <div className={`text-sm font-bold mb-2 ${
                         selected === q.answer ? "text-accent-green" : "text-accent-red"
                       }`}>
-                        {selected === q.answer ? "✅ Correct!" : `❌ Incorrect — Answer: ${q.answer}`}
+                        {selected === q.answer ? "✅ Correct!" : `❌ Incorrect — Correct Answer: ${q.answer}`}
                       </div>
-                      <div className="text-xs text-muted leading-relaxed">{q.explanation}</div>
+                      <div className="text-xs text-muted leading-relaxed pb-1 border-t border-surface-500 pt-2 mt-2">
+                        <strong className="text-white">Explanation:</strong> {q.explanation}
+                      </div>
                     </div>
 
                     {/* Auto-generated flashcard notification */}

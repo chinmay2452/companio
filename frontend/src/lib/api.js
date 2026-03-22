@@ -64,8 +64,13 @@ export const getSrsStats = (userId) =>
   api.get(`/api/srs/stats/${userId}`);
 
 // ── AI Tutor ──────────────────────────────────────────────────────
-export const askTutorHindi = (question, history = []) =>
-  api.post("/api/tutor/hindi", { question, history });
+export const askTutorHindi = (question, history = [], subject = "General", userId) =>
+  api.post("/api/tutor/hindi", {
+    question,
+    history,
+    subject,
+    user_id: userId,
+  });
 
 // ── Micro-Time ────────────────────────────────────────────────────
 export const getMicroSession = (userId, minutes) =>
@@ -75,5 +80,4 @@ export const getMicroSession = (userId, minutes) =>
 export const getUserStats = (userId) =>
   api.get(`/api/srs/stats/${userId}`);
 
-// Demo user ID — replaced at runtime by Supabase auth user
-export const DEMO_USER = "81f73dbc-1976-4a7c-8f97-4af1ceb34105";
+// User ID is now obtained from Supabase Auth session (useAppStore)

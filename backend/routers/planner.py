@@ -120,6 +120,7 @@ async def generate_plan(req: PlanRequest) -> dict:
             "role": "user",
             "content": (
                 f"Create a study plan for {req.available_hours} hours today ({today_iso}). "
+                f"IMPORTANT: The first study session MUST start at 08:00 AM. "
                 f"Exam: {req.exam_type} on {exam_date_str}. "
                 f"{subjects_hint} "
                 f"{topic_focus_hint} "

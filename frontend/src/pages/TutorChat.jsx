@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { api, DEMO_USER } from "../lib/api";
+import { api } from "../lib/api";
 import { useUser } from "../store/useAppStore";
 
 const SUGGESTIONS = [
@@ -33,7 +33,7 @@ export default function TutorChat() {
 
     // Try SSE streaming endpoint first
     try {
-      const res = await api.post("/api/tutor/ask", { question: q, subject, user_id: user?.id || DEMO_USER });
+      const res = await api.post("/api/tutor/ask", { question: q, subject, user_id: user?.id });
       const answer = res.data?.answer || res.data?.response || "I found relevant information in NCERT sources. " + q;
       setMsgs(p => [...p, { role:"ai", text:answer }]);
     } catch {
