@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useUser, useIsOnline } from '../../store/useAppStore';
+import { api } from '../../lib/api';
 
 const SCREENS = {
   PICKER: 1,
@@ -15,6 +16,7 @@ export default function MicroTimeMode() {
   const [screen, setScreen] = useState(SCREENS.PICKER);
   const [duration, setDuration] = useState(2);
   const [subject, setSubject] = useState('All');
+  const [topic, setTopic] = useState('All');
   
   const [sessionId, setSessionId] = useState('');
   const [items, setItems] = useState([]);
@@ -34,28 +36,20 @@ export default function MicroTimeMode() {
   };
 
   const startSession = async () => {
-    if (!user) {
-      alert("Please log in first!");
-      return; 
-    }
+    const userId = user?.id || "00000000-0000-0000-0000-000000000000";
     
     setScreen(SCREENS.LOADING);
     
     try {
       const payload = {
-        user_id: user.id,
+        user_id: userId,
         duration_minutes: duration,
-        subject: subject === 'All' ? null : subject
+        subject: subject === 'All' ? null : subject,
+        topic: topic === 'All' ? null : topic
       };
 
-      const res = await fetch('/api/microtime/session/start', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-      
-      if (!res.ok) throw new Error('Failed to start session');
-      const data = await res.json();
+      const res = await api.post('/api/microtime/session/start', payload);
+      const data = res.data;
       
       setSessionId(data.session_id);
       setItems(data.content || []);
@@ -105,18 +99,13 @@ export default function MicroTimeMode() {
     };
 
     try {
-      const res = await fetch('/api/microtime/session/complete', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+      const res = await api.post('/api/microtime/session/complete', {
           session_id: activeSessionId,
-          user_id: user?.id,
+          user_id: user?.id || "00000000-0000-0000-0000-000000000000",
           items_result: forceResults
-        })
       });
       
-      if (!res.ok) throw new Error('Failed to complete session');
-      const data = await res.json();
+      const data = res.data;
       setFinalStats({ ...data, oldResults: forceResults });
       setScreen(SCREENS.RESULTS);
     } catch (err) {
@@ -425,11 +414,14 @@ export default function MicroTimeMode() {
         <p className="text-xl text-gray-500 max-w-2xl mx-auto font-medium leading-relaxed">Short, focused burst sessions. Pick your available time limit and crush some concepts before your next class!</p>
       </div>
 
-      <div className="flex justify-center mb-12">
-        <div className="relative inline-block w-64">
+      <div className="flex flex-col sm:flex-row justify-center items-center gap-4 mb-12">
+        <div className="relative inline-block w-full sm:w-72">
            <select 
              value={subject} 
-             onChange={(e) => setSubject(e.target.value)}
+             onChange={(e) => {
+               setSubject(e.target.value);
+               setTopic('All'); // Reset topic when subject changes
+             }}
              className="block w-full bg-white border-2 border-gray-200 text-gray-800 py-4 px-6 pr-10 rounded-2xl font-bold shadow-sm focus:outline-none focus:ring-4 focus:ring-indigo-100 focus:border-indigo-500 appearance-none cursor-pointer text-lg hover:border-gray-300 transition-colors"
              style={{ backgroundImage: `url('data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%234F46E5%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E')`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 1rem top 50%', backgroundSize: '1rem auto' }}
            >
@@ -438,6 +430,59 @@ export default function MicroTimeMode() {
              ))}
            </select>
         </div>
+
+        {subject !== 'All' && (
+          <div className="relative inline-block w-full sm:w-80 animate-fade-in-up">
+             <select 
+               value={topic} 
+               onChange={(e) => setTopic(e.target.value)}
+               className="block w-full bg-indigo-50 border-2 border-indigo-200 text-indigo-900 py-4 px-6 pr-10 rounded-2xl font-bold shadow-sm focus:outline-none focus:ring-4 focus:ring-indigo-100 focus:border-indigo-500 appearance-none cursor-pointer text-lg hover:border-indigo-300 transition-colors"
+               style={{ backgroundImage: `url('data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%234F46E5%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E')`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 1rem top 50%', backgroundSize: '1rem auto' }}
+             >
+               <option value="All">📑 All Chapters</option>
+               {subject === 'Physics' && (
+                 <>
+                   <option value="Ch 1: Kinematics (Formulas)">Ch 1: Kinematics (Formulas)</option>
+                   <option value="Ch 2: Thermodynamics (Formulas)">Ch 2: Thermodynamics (Formulas)</option>
+                   <option value="Ch 3: Electromagnetism">Ch 3: Electromagnetism</option>
+                   <option value="Ch 4: Mechanics (Concepts)">Ch 4: Mechanics (Concepts)</option>
+                   <option value="Ch 5: Optics (Diagrams)">Ch 5: Optics (Diagrams)</option>
+                   <option value="Ch 6: Modern Physics">Ch 6: Modern Physics</option>
+                 </>
+               )}
+               {subject === 'Chemistry' && (
+                 <>
+                   <option value="Ch 1: Chemical Bonding (Names)">Ch 1: Chemical Bonding (Things to mug up)</option>
+                   <option value="Ch 2: Organic Chemistry (Reactions)">Ch 2: Organic Chemistry (Reactions)</option>
+                   <option value="Ch 3: Periodicity (Exceptions)">Ch 3: Periodicity (Exceptions)</option>
+                   <option value="Ch 4: Coordination Compounds">Ch 4: Coordination Compounds</option>
+                   <option value="Ch 5: Electrochemistry">Ch 5: Electrochemistry</option>
+                   <option value="Ch 6: s-Block & p-Block">Ch 6: s-Block & p-Block</option>
+                 </>
+               )}
+               {subject === 'Maths' && (
+                 <>
+                   <option value="Ch 1: Calculus (Formulas)">Ch 1: Calculus (Formulas)</option>
+                   <option value="Ch 2: Coordinate Geometry (Formulas)">Ch 2: Coordinate Geometry (Formulas)</option>
+                   <option value="Ch 3: Algebra">Ch 3: Algebra</option>
+                   <option value="Ch 4: Trigonometry (Identities)">Ch 4: Trigonometry (Identities)</option>
+                   <option value="Ch 5: Matrices & Determinants">Ch 5: Matrices & Determinants</option>
+                   <option value="Ch 6: Probability & Statistics">Ch 6: Probability & Statistics</option>
+                 </>
+               )}
+               {subject === 'Biology' && (
+                 <>
+                   <option value="Ch 1: Cell Biology (Facts)">Ch 1: Cell Biology (Facts)</option>
+                   <option value="Ch 2: Human Physiology">Ch 2: Human Physiology</option>
+                   <option value="Ch 3: Genetics">Ch 3: Genetics</option>
+                   <option value="Ch 4: Plant Physiology">Ch 4: Plant Physiology</option>
+                   <option value="Ch 5: Ecology & Environment">Ch 5: Ecology & Environment</option>
+                   <option value="Ch 6: Biotechnology">Ch 6: Biotechnology</option>
+                 </>
+               )}
+             </select>
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-16">

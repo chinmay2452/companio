@@ -162,6 +162,43 @@ def generate_mcq(topic: str, difficulty: str = "medium") -> dict:
             "correct_index": 0,
         }
 
+def generate_formula(topic: str, subject: str) -> dict:
+    """Generate a single formula or fact on the given topic using the FAST_MODEL.
+
+    Returns a dict with keys: formula_text, explanation.
+    """
+    import json
+    import re
+
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "You are an expert tutor preparing quick revision notes. "
+                "Generate exactly 1 key formula, fact, or core concept to memorize. "
+                "Return ONLY valid JSON with keys: 'formula_text' (the formula or short fact), "
+                "and 'explanation' (brief clear explanation of terms or the concept). "
+                "No markdown outside JSON."
+            ),
+        },
+        {
+            "role": "user",
+            "content": f"Generate 1 key item to memorize for {subject} - {topic}.",
+        },
+    ]
+
+    try:
+        raw = chat(messages, model=FAST_MODEL, max_tokens=512)
+        raw = raw.strip()
+        raw = re.sub(r"^```(?:json)?\s*\n?", "", raw)
+        raw = re.sub(r"\n?```\s*$", "", raw)
+        return json.loads(raw.strip())
+    except Exception:
+        return {
+            "formula_text": f"Crucial concept in {topic}",
+            "explanation": f"Make sure to review {topic} thoroughly.",
+        }
+
 
 def extract_concept(
     question: str,

@@ -13,12 +13,19 @@ def get_supabase() -> Client:
     """Return the module-level Supabase client instance."""
     return supabase
 
-def fetch_due_cards(user_id: str, limit: int = 20) -> list[dict]:
+def fetch_due_cards(user_id: str, limit: int = 20, subject: str = None, topic: str = None) -> list[dict]:
     try:
         today_str = date.today().isoformat()
-        response = supabase.table("cards").select(
+        query = supabase.table("cards").select(
             "id, subject, topic, front, back, ease_factor, interval_days, repetitions"
-        ).eq("user_id", user_id).lte("due_date", today_str).order("due_date").order("ease_factor").limit(limit).execute()
+        ).eq("user_id", user_id).lte("due_date", today_str)
+        
+        if subject:
+            query = query.eq("subject", subject)
+        if topic:
+            query = query.eq("topic", topic)
+            
+        response = query.order("due_date").order("ease_factor").limit(limit).execute()
         return response.data
     except Exception as e:
         print(f"Error in fetch_due_cards: {e}")

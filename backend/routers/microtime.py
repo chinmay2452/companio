@@ -19,6 +19,7 @@ class StartSessionRequest(BaseModel):
     user_id: str
     duration_minutes: int
     subject: Optional[str] = None
+    topic: Optional[str] = None
 
 class ItemResult(BaseModel):
     type: str # "flashcard" or "mcq"
@@ -50,7 +51,7 @@ def start_session(req: StartSessionRequest):
             num_mcqs = 2
 
         # Fetch due cards
-        due_cards = fetch_due_cards(req.user_id, limit=num_cards)
+        due_cards = fetch_due_cards(req.user_id, limit=num_cards, subject=req.subject, topic=req.topic)
         
         content = []
         for card in due_cards:
@@ -65,33 +66,64 @@ def start_session(req: StartSessionRequest):
             
         # Generate MCQs if needed (fallback if not enough weak topics)
         if num_mcqs > 0:
-            weak_topics = get_weak_topics(req.user_id, limit=num_mcqs)
-            topics_to_generate = [wt["topic"] for wt in weak_topics]
-            
-            while len(topics_to_generate) < num_mcqs:
-                topics_to_generate.append("General Science") # Generic fallback
+            if req.topic:
+                # User specifically asked for this topic
+                topics_to_generate = [req.topic] * num_mcqs
+            else:
+                weak_topics = get_weak_topics(req.user_id, limit=num_mcqs)
+                topics_to_generate = [wt["topic"] for wt in weak_topics]
                 
-            for topic in topics_to_generate[:num_mcqs]:
-                mcq_data = generate_mcq(topic=topic, difficulty="medium")
+                while len(topics_to_generate) < num_mcqs:
+                    topics_to_generate.append("General Science") # Generic fallback
+                
+            for t in topics_to_generate[:num_mcqs]:
+                mcq_data = generate_mcq(topic=t, difficulty="medium")
                 content.append({
                     "type": "mcq",
-                    "topic": topic,
+                    "topic": t,
                     "question": mcq_data.get("question", "Question?"),
                     "options": mcq_data.get("options", ["A", "B", "C", "D"]),
                     "correct_index": mcq_data.get("correct_index", 0)
                 })
+
+        # Generate custom formulas if requested or to fill shortfall
+        generate_formulas_count = 0
+        if req.duration_minutes >= 5:
+            generate_formulas_count = 1
+        if req.duration_minutes == 10:
+            generate_formulas_count = 2
+
+        if req.topic:
+            shortfall = num_cards - len(due_cards)
+            if shortfall > 0:
+                generate_formulas_count += shortfall
+                
+        if generate_formulas_count > 0:
+            from services.ai_service import generate_formula
+            topic_for_formula = req.topic if req.topic else ("Formulas" if req.subject == "Physics" or req.subject == "Maths" else "Facts")
+            subj_for_formula = req.subject if req.subject else "General"
+            for _ in range(generate_formulas_count):
+                f_data = generate_formula(topic_for_formula, subj_for_formula)
+                content.append({
+                    "type": "formula",
+                    "topic": topic_for_formula,
+                    "formula_text": f_data.get("formula_text", "Concept!"),
+                    "explanation": f_data.get("explanation", "Review this.")
+                })
         
         # Insert new micro_sessions row
-        session_data = {
-            "user_id": req.user_id,
-            "duration_minutes": req.duration_minutes,
-            "completed": False
-        }
-        session_res = supabase.table("micro_sessions").insert(session_data).execute()
-        if not session_res.data:
-            raise Exception("Failed to serialize session row in DB")
-        
-        session_id = session_res.data[0]["id"]
+        if req.user_id == "00000000-0000-0000-0000-000000000000":
+            session_id = "demo_session_123"
+        else:
+            session_data = {
+                "user_id": req.user_id,
+                "duration_minutes": req.duration_minutes,
+                "completed": False
+            }
+            session_res = supabase.table("micro_sessions").insert(session_data).execute()
+            if not session_res.data:
+                raise Exception("Failed to serialize session row in DB")
+            session_id = session_res.data[0]["id"]
         
         return {
             "session_id": session_id,
@@ -143,16 +175,25 @@ def complete_session(req: CompleteSessionRequest):
                 mcqs_attempted += 1
 
             # Log the attempt universally
-            log_attempt(
-                user_id=req.user_id,
-                card_id=item.card_id,
-                subject=item.subject or "Unknown",
-                topic=item.topic or "Unknown",
-                correct=item.correct,
-                score=4 if item.correct else 1,
-                time_seconds=item.time_seconds,
-                source="microtime" # as per requirements in prompt 4
-            )
+            if req.user_id != "00000000-0000-0000-0000-000000000000":
+                log_attempt(
+                    user_id=req.user_id,
+                    card_id=item.card_id,
+                    subject=item.subject or "Unknown",
+                    topic=item.topic or "Unknown",
+                    correct=item.correct,
+                    score=4 if item.correct else 1,
+                    time_seconds=item.time_seconds,
+                    source="microtime" # as per requirements in prompt 4
+                )
+
+        if req.user_id == "00000000-0000-0000-0000-000000000000":
+            accuracy = (correct_count / total_items * 100) if total_items > 0 else 0
+            return {
+                "streak": 3,
+                "accuracy": accuracy,
+                "message": "Demo mode session complete! Sign in to save progress."
+            }
 
         # Update Session Row
         now_str = datetime.utcnow().isoformat()

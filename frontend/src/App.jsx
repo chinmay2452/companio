@@ -3,7 +3,7 @@ import Dashboard from "./pages/Dashboard";
 import Practice from "./pages/Practice";
 import TutorChat from "./pages/TutorChat";
 import Revisions from "./pages/Revisions";
-import MicroTimePage from "./pages/MicroTimePage";
+import MicroTimeMode from "./components/microtime/MicroTimeMode";
 import VoiceHindiTutor from "./components/voice/VoiceHindiTutor";
 import Onboarding from "./pages/Onboarding";
 import useAppStore from "./store/useAppStore";
@@ -85,7 +85,7 @@ export default function App() {
         {tab === "practice"   && <Practice />}
         {tab === "tutor"      && <TutorChat />}
         {tab === "voice"      && <VoiceHindiTutor />}
-        {tab === "micro"      && <MicroTimePage />}
+        {tab === "micro"      && <MicroTimeMode />}
       </div>
     </div>
   );
