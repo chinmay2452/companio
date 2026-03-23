@@ -91,7 +91,7 @@ function DurCard({ opt, selected, onSelect }) {
 export default function MicroTimeMode() {
   const user = useUser();
   const isOnline = useIsOnline();
-  const { data: storeData } = useRealtimeStore();
+  const { data: storeData, refreshAll } = useRealtimeStore();
 
   const [screen,           setScreen]           = useState(SCREENS.PICKER);
   const [duration,         setDuration]         = useState(5);
@@ -204,6 +204,7 @@ export default function MicroTimeMode() {
         items_result: forceResults,
       });
       setFinalStats({ ...res.data, oldResults: forceResults });
+      refreshAll();
     } catch {
       setFinalStats(fallbackStats);
     }

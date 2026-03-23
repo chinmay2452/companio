@@ -141,7 +141,7 @@ function UpcomingList({ cards, onStartReview }) {
 
 /* ══════════════════════════════════════════════════════════════════ */
 export default function Revisions() {
-  const { data: storeData } = useRealtimeStore();
+  const { data: storeData, refreshAll } = useRealtimeStore();
   const user = storeData.users;
   const userId = user?.id;
 
@@ -187,7 +187,7 @@ export default function Revisions() {
 
   // ── Review handlers ───────────────────────────────────────────────
   const handleScore = async (quality) => {
-    try { await reviewCard(userId, card.id, quality); } catch {}
+    try { await reviewCard(userId, card.id, quality); refreshAll(); } catch {}
     setFlipped(false);
     // Move to next card in array (optimistic)
     setIdx(i => i + 1);
@@ -210,16 +210,17 @@ export default function Revisions() {
       await createCard(userId, formSubject, formTopic, formFront, formBack);
       setFormTopic(""); setFormFront(""); setFormBack("");
       setShowForm(false);
+      refreshAll();
     } catch (e) { console.error(e); }
     setSaving(false);
   };
 
   const handleDelete = async (cardId) => {
-    try { await deleteCard(cardId); } catch (e) { console.error(e); }
+    try { await deleteCard(cardId); refreshAll(); } catch (e) { console.error(e); }
   };
 
   const handleClearAll = async () => {
-    try { await clearAllData(userId); setIdx(0); setConfirmClear(false); }
+    try { await clearAllData(userId); setIdx(0); setConfirmClear(false); refreshAll(); }
     catch (e) { console.error(e); }
   };
 

@@ -75,7 +75,7 @@ function EmptyIllustration() {
 }
 
 export default function Practice() {
-  const { data: storeData } = useRealtimeStore();
+  const { data: storeData, refreshAll } = useRealtimeStore();
   const user = storeData.users;
   const userId = user?.id;
 
@@ -144,6 +144,7 @@ export default function Practice() {
     try {
       const res = await submitAnswer(userId, q.id, q.question, opt, q.answer, timeSec, subject, topic);
       if (res.data?.flashcard_generated) setGeneratedCard(res.data.flashcard_generated);
+      refreshAll();
     } catch (e) { console.error(e); }
   };
 
