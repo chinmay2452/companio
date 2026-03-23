@@ -145,7 +145,8 @@ def generate_mcq(topic: str, difficulty: str = "medium") -> dict:
             "role": "system",
             "content": (
                 "You are a JEE/NEET question paper setter. "
-                "Generate exactly 1 MCQ. Return ONLY valid JSON with keys: "
+                "Generate exactly 1 MCQ. The question MUST have EXACTLY 4 distinct options. EXACTLY ONE option must be completely correct, and the other THREE options MUST be definitively incorrect. "
+                "Return ONLY valid JSON with keys: "
                 "question (str), options (array of 4 strings), correct_index (int 0-3). "
                 "No markdown, no explanation."
             ),

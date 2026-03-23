@@ -97,7 +97,7 @@ async def generate_mcqs(req: MCQRequest) -> dict:
                 "- Use NCERT level.\n"
                 "The JSON must be an object with the key 'questions' containing an array of objects "
                 "with keys: id (string), question (str), "
-                "options (array of EXACTLY 4 distinct strings. Exactly ONE option must be completely correct), "
+                "options (array of EXACTLY 4 distinct strings. EXACTLY ONE option must be completely correct, and the other THREE options MUST be definitively incorrect), "
                 "answer (str, MUST perfectly match the text of the single correct option), "
                 "explanation (str, provide a detailed step-by-step solution proving why the answer is correct), "
                 "concept_tested (str, specify the specific micro-topic or formula tested in this question)."

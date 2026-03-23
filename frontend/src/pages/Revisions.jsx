@@ -164,6 +164,7 @@ export default function Revisions() {
   // We manage idx in state. When realtime dueCardsList shrinks, idx might overflow.
   const [idx, setIdx] = useState(0);
   const [flipped, setFlipped] = useState(false);
+  const [isReviewing, setIsReviewing] = useState(false);
 
   // If dueCardsList shrinks and idx is out of bounds, snap it
   useEffect(() => {
@@ -262,7 +263,7 @@ export default function Revisions() {
           ].map(t => (
             <button
               key={t.key}
-              onClick={() => { setTab(t.key); if (t.key === "review") setIdx(0); }}
+              onClick={() => { setTab(t.key); if (t.key === "review") setIdx(0); setIsReviewing(false); }}
               style={{
                 padding: "9px 18px", borderRadius: 8, border: "none", cursor: "pointer",
                 fontSize: 13, fontWeight: 600, transition: "all 0.2s",
@@ -281,7 +282,9 @@ export default function Revisions() {
         {/* ══════════════ REVIEW TAB ══════════════ */}
         {tab === "review" && (
           <div style={{ animation: "fade-in 0.3s ease" }}>
-            {/* Stat cards */}
+            {!isReviewing ? (
+              <>
+              {/* Stat cards */}
             <div style={{ display: "flex", gap: 14, marginBottom: 16 }}>
               <StatCard icon="📚" label="Cards Due"     value={dueCardsList.length}        sub={dueCardsList.length > 0 ? "Needs review today" : "All caught up!"}  glow={C.error}     />
               <StatCard icon="🧠" label="Avg Retention" value={`${memHealth}%`}         sub="Memory health score"                                           glow={C.secondary} />
@@ -295,7 +298,7 @@ export default function Revisions() {
             {dueCardsList.length > 0 && idx < dueCardsList.length && (
               <button
                 className="cta-btn"
-                onClick={() => { setIdx(0); setFlipped(false); }}
+                onClick={() => { setIdx(0); setFlipped(false); setIsReviewing(true); }}
                 style={{
                   width: "100%", padding: "14px", marginBottom: 16, border: "none", borderRadius: 12,
                   background: `linear-gradient(135deg,${C.primary},${C.primaryDim})`, color: "#fff", fontSize: 14, fontWeight: 800, cursor: "pointer", letterSpacing: -0.3, fontFamily: "Manrope,sans-serif", boxShadow: `0 6px 24px ${C.primary}44`, transition: "all 0.2s",
@@ -305,10 +308,18 @@ export default function Revisions() {
               </button>
             )}
 
-            {/* Upcoming reviews */}
-            <UpcomingList cards={allCards} onStartReview={() => setTab("review")} />
-
-            {/* ── Active Review Session ─────────────────── */}
+                {/* Upcoming reviews */}
+                <UpcomingList cards={allCards} onStartReview={() => setIsReviewing(true)} />
+              </>
+            ) : (
+              <>
+                <button
+                  onClick={() => setIsReviewing(false)}
+                  style={{ background: "transparent", color: C.textPrimary, border: "none", cursor: "pointer", marginBottom: 16, display: "flex", alignItems: "center", gap: 6, fontSize: 13, fontWeight: 700 }}
+                >
+                  ← Back to Overview
+                </button>
+                {/* ── Active Review Session ─────────────────── */}
             {dueCardsList.length === 0 ? (
               /* Empty state */
               <div style={{ ...glass({ padding: "56px 40px" }), textAlign: "center", animation: "fade-in 0.4s ease" }}>
@@ -339,8 +350,8 @@ export default function Revisions() {
                 <p style={{ fontSize: 13, color: C.textMuted, maxWidth: 340, margin: "0 auto 24px", lineHeight: 1.7 }}>
                   Great session! SM-2 intervals have been updated based on your recall ratings.
                 </p>
-                <button className="cta-btn" onClick={() => { setIdx(0); setFlipped(false); }} style={{ background: `linear-gradient(135deg,${C.primary},${C.primaryDim})`, color: "#fff", border: "none", borderRadius: 10, padding: "11px 24px", fontSize: 13, fontWeight: 700, cursor: "pointer", transition: "all 0.2s" }}>
-                  🔄 Restart Session
+                <button className="cta-btn" onClick={() => { setIdx(0); setFlipped(false); setIsReviewing(false); }} style={{ background: `linear-gradient(135deg,${C.primary},${C.primaryDim})`, color: "#fff", border: "none", borderRadius: 10, padding: "11px 24px", fontSize: 13, fontWeight: 700, cursor: "pointer", transition: "all 0.2s" }}>
+                  🔙 Back to Overview
                 </button>
               </div>
             ) : (
@@ -406,6 +417,8 @@ export default function Revisions() {
                   <div style={{ textAlign: "center", fontSize: 12, color: C.textMuted }}>👆 Tap the card to reveal the answer</div>
                 )}
               </div>
+            )}
+            </>
             )}
           </div>
         )}
