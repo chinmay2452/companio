@@ -166,11 +166,10 @@ async def generate_plan(req: PlanRequest) -> dict:
         if isinstance(session, dict):
             total_minutes += session.get("duration_min", 30)
 
-    # Persist the plan
+    # Persist the plan (optional — table may not exist)
     try:
         save_daily_plan(req.user_id, today_iso, plan_json)
     except Exception as e:
-        # Don't fail the whole request if save fails
         print(f"Warning: Failed to save plan: {e}")
 
     return {"plan": plan_json, "total_minutes": total_minutes}
@@ -190,12 +189,10 @@ async def get_today_plan(user_id: str) -> dict:
             .eq("plan_date", today_iso)
             .execute()
         )
+        if response.data:
+            row = response.data[0]
+            return {"plan": row.get("plan")}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to fetch plan: {e}")
+        print(f"Warning: Could not fetch today's plan: {e}")
 
-    if response.data:
-        row = response.data[0]
-        return {
-            "plan": row.get("plan"),
-        }
     return {"plan": None, "message": "No plan for today yet. Generate one!"}

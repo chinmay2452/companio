@@ -1,5 +1,6 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import { useRealtimeStore } from "../hooks/useRealtimeStore";
+import useAppStore from "../store/useAppStore";
 import { generatePlan } from "../lib/api";
 
 /* ── Design tokens (Companio Nebula) ───────────────────────────── */
@@ -101,8 +102,34 @@ function BarChart({ data, height = 120, maxVal = 100 }) {
 /* ─────────── Main Dashboard ─────────────────────────────────────── */
 export default function Dashboard() {
   const { data: storeData, loading: storeLoading } = useRealtimeStore();
+  const authUser = useAppStore(s => s.user);
   const [generatingPlan, setGeneratingPlan] = useState(false);
   const [doneItems, setDoneItems] = useState({});
+  const [localPlan, setLocalPlan] = useState(null); // direct API response fallback
+  const [showConfig, setShowConfig] = useState(false);
+
+  // ── Config state ──
+  const [cfgHours, setCfgHours] = useState(4);
+  const [cfgSubjects, setCfgSubjects] = useState([]);
+  const [cfgTopicFocus, setCfgTopicFocus] = useState("");
+
+  // Derive subject options from the user's signup profile
+  const userProfile = storeData?.users || {};
+  const SUBJECT_OPTIONS = userProfile.preferred_subjects && userProfile.preferred_subjects.length > 0
+    ? userProfile.preferred_subjects
+    : ["Physics", "Chemistry", "Maths", "Biology"]; // fallback if profile not loaded
+
+  // Initialize config from user profile once loaded
+  useEffect(() => {
+    if (userProfile && Object.keys(userProfile).length > 0) {
+      if (userProfile.daily_goal_hours) setCfgHours(userProfile.daily_goal_hours);
+      if (userProfile.preferred_subjects?.length > 0) setCfgSubjects(userProfile.preferred_subjects);
+    }
+  }, [userProfile?.id]); // only re-run when user changes
+
+  const toggleSubject = (s) => {
+    setCfgSubjects(prev => prev.includes(s) ? prev.filter(x => x !== s) : [...prev, s]);
+  };
 
   // Memoized Stats
   const stats = useMemo(() => {
@@ -110,16 +137,15 @@ export default function Dashboard() {
     const now = new Date();
     
     // Cards
-    const dueCount = storeData.cards.filter(c => new Date(c.next_review || now) <= now).length;
-    const trackedCount = storeData.cards.length;
+    const dueCount = storeData.cards.filter(c => new Date(c.next_review || c.due_date || now) <= now).length;
 
-    // Plans
+    // Plans — try both `plan_date` and `date` column names
     const todayStr = new Date().toISOString().split("T")[0];
-    const todaysPlanRow = storeData.daily_plans.find(p => p.date === todayStr);
-    const planItems = todaysPlanRow?.plan || [];
+    const todaysPlanRow = storeData.daily_plans.find(p => (p.plan_date || p.date) === todayStr);
+    const realtimePlanItems = todaysPlanRow?.plan || [];
 
     // Weak topics
-    const weakTopics = storeData.weak_topics?.sort((a,b) => a.score - b.score) || [];
+    const weakTopics = [...(storeData.weak_topics || [])].sort((a,b) => (a.score || a.accuracy || 0) - (b.score || b.accuracy || 0));
     const topWeak = weakTopics[0];
 
     // Attempts
@@ -147,8 +173,7 @@ export default function Dashboard() {
       appName: "Companio AI",
       user: storeData.users || {},
       dueCount,
-      trackedCount,
-      planItems,
+      realtimePlanItems,
       weakTopics,
       topWeak,
       overallAccuracy,
@@ -173,18 +198,34 @@ export default function Dashboard() {
     );
   }
 
-  const { user, dueCount, planItems, weakTopics, topWeak, overallAccuracy, subjectData, microToday, totalMicroMin } = stats;
+  const { user, dueCount, realtimePlanItems, weakTopics, topWeak, overallAccuracy, subjectData, microToday, totalMicroMin } = stats;
+  // Use local plan (from API response) if available, otherwise fallback to realtime
+  const planItems = localPlan || realtimePlanItems;
   const hour = new Date().getHours();
   const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
   const doneCount = Object.values(doneItems).filter(Boolean).length;
+  const planProgressPct = planItems.length > 0 ? (doneCount / planItems.length) * 100 : 0;
 
   const handleGeneratePlan = async () => {
+    const userId = authUser?.id || user?.id;
+    if (!userId) { console.error("No user ID available"); return; }
     setGeneratingPlan(true);
+    setLocalPlan(null);
+    setDoneItems({});
     try {
-      await generatePlan(user.id, user.exam_type || "JEE", user.daily_goal_hours || 4, null, user.preferred_subjects || [], "");
-    } catch(err) { console.error(err); }
+      if (!userProfile?.exam_type) throw new Error("Exam type not loaded from profile yet.");
+      const res = await generatePlan(userId, userProfile.exam_type, cfgHours, null, cfgSubjects, cfgTopicFocus);
+      const planData = res.data?.plan || [];
+      setLocalPlan(planData);
+      setShowConfig(false);
+    } catch(err) {
+      console.error(err);
+      alert("Failed to generate plan: " + (err.response?.data?.detail || err.message));
+    }
     setGeneratingPlan(false);
   };
+
+  const inputStyle = { width: "100%", padding: "9px 12px", background: C.surfaceTop, border: "none", borderRadius: 8, color: C.textPrimary, fontSize: 13, outline: "none", boxSizing: "border-box" };
 
   return (
     <>
@@ -193,7 +234,10 @@ export default function Dashboard() {
         @keyframes nebula-shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
         @keyframes fade-in { 0% { opacity: 0; transform: translateY(10px); } 100% { opacity: 1; transform: translateY(0); } }
         @keyframes pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
-        .live-badge { display: inline-flex; alignItems: center; gap: 6px; font-size: 10px; font-weight: 700; color: ${C.secondary}; text-transform: uppercase; letter-spacing: 1px; padding: 4px 10px; background: ${C.secondary}15; border-radius: 12px; border: 1px solid ${C.secondary}33; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .live-badge { display: inline-flex; align-items: center; gap: 6px; font-size: 10px; font-weight: 700; color: ${C.secondary}; text-transform: uppercase; letter-spacing: 1px; padding: 4px 10px; background: ${C.secondary}15; border-radius: 12px; border: 1px solid ${C.secondary}33; }
+        .cfg-btn:hover { filter: brightness(1.1); transform: scale(1.02); }
+        .subj-chip:hover { filter: brightness(1.15); }
       `}</style>
       
       <div style={{ padding: "28px 32px", fontFamily: "Inter, sans-serif", color: C.textPrimary, minHeight: "100vh" }}>
@@ -205,24 +249,103 @@ export default function Dashboard() {
               {greeting}, {user.name || "Student"} 👋
             </h1>
             <p style={{ color: C.textMuted, fontSize: 13, marginTop: 6, display: "flex", gap: 12, alignItems: "center" }}>
-              <span>Target: <strong style={{color: C.textPrimary}}>{user.exam_type} {user.target_year}</strong></span>
-              • <span>Goal: <strong style={{color: C.textPrimary}}>{user.daily_goal_hours}h / day</strong></span>
+              <span>Target: <strong style={{color: C.textPrimary}}>{userProfile.exam_type || "JEE"}</strong></span>
+              • <span>Goal: <strong style={{color: C.textPrimary}}>{cfgHours}h / day</strong></span>
               <span className="live-badge"><span style={{width:6, height:6, borderRadius:"50%", background:C.secondary, animation: "pulse-dot 1.5s infinite"}}/> Live Sync</span>
             </p>
           </div>
-          <div>
-            <button onClick={handleGeneratePlan} disabled={generatingPlan} style={{ background: `linear-gradient(135deg, ${C.primary}, ${C.primaryDim})`, color: "#fff", border: "none", borderRadius: 10, padding: "10px 20px", fontSize: 12, fontWeight: 700, cursor: generatingPlan ? "wait" : "pointer", opacity: generatingPlan ? 0.7 : 1, boxShadow: `0 4px 14px ${C.primary}44` }}>
-              {generatingPlan ? "⏳ Generating..." : "✨ Generate AI Plan"}
+          <div style={{ display: "flex", gap: 10 }}>
+            <button
+              className="cfg-btn"
+              onClick={() => setShowConfig(p => !p)}
+              style={{
+                background: showConfig ? `${C.primary}30` : C.surfaceTop,
+                color: showConfig ? C.primary : C.textMuted,
+                border: `1px solid ${showConfig ? C.primary + '55' : C.outline + '33'}`,
+                borderRadius: 10, padding: "10px 18px", fontSize: 12, fontWeight: 700, cursor: "pointer", transition: "all 0.2s",
+              }}
+            >
+              ⚙️ {showConfig ? "Hide Config" : "Config"}
+            </button>
+            <button
+              className="cfg-btn"
+              onClick={handleGeneratePlan}
+              disabled={generatingPlan || cfgSubjects.length === 0}
+              style={{
+                background: `linear-gradient(135deg, ${C.primary}, ${C.primaryDim})`,
+                color: "#fff", border: "none", borderRadius: 10, padding: "10px 20px", fontSize: 12, fontWeight: 700,
+                cursor: generatingPlan ? "wait" : "pointer", opacity: generatingPlan || cfgSubjects.length === 0 ? 0.6 : 1,
+                boxShadow: `0 4px 14px ${C.primary}44`, transition: "all 0.2s",
+              }}
+            >
+              {generatingPlan ? (
+                <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ width: 14, height: 14, border: "2px solid rgba(255,255,255,.3)", borderTopColor: "#fff", borderRadius: "50%", animation: "spin 0.8s linear infinite", display: "inline-block" }} />
+                  Generating…
+                </span>
+              ) : "✨ Generate AI Plan"}
             </button>
           </div>
         </div>
+
+        {/* ── Config Panel ─────────────────────────────────────── */}
+        {showConfig && (
+          <div style={{ ...glass({ padding: "22px 24px", marginBottom: 22 }), animation: "fade-in 0.25s ease", border: `1px solid ${C.primary}33` }}>
+            <div style={{ fontSize: 10, color: C.primary, textTransform: "uppercase", letterSpacing: 1.4, fontWeight: 700, marginBottom: 16 }}>⚙️ Planner Configuration</div>
+            
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ fontSize: 10, color: C.textMuted, marginBottom: 6, textTransform: "uppercase", letterSpacing: 1 }}>Study Hours</div>
+              <div style={{ display: "flex", gap: 6 }}>
+                {[2, 4, 6, 8].map(h => (
+                  <button key={h} onClick={() => setCfgHours(h)} style={{
+                    flex: 1, padding: "8px 0", borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: "pointer", transition: "all 0.15s",
+                    border: cfgHours === h ? `1px solid ${C.secondary}55` : `1px solid ${C.outline}33`,
+                    background: cfgHours === h ? `${C.secondary}18` : "transparent",
+                    color: cfgHours === h ? C.secondary : C.textMuted,
+                  }}>{h}h</button>
+                ))}
+              </div>
+            </div>
+
+            {/* Subjects */}
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ fontSize: 10, color: C.textMuted, marginBottom: 8, textTransform: "uppercase", letterSpacing: 1 }}>Subjects (select all that apply)</div>
+              <div style={{ display: "flex", gap: 8 }}>
+                {SUBJECT_OPTIONS.map(s => {
+                  const active = cfgSubjects.includes(s);
+                  return (
+                    <button key={s} className="subj-chip" onClick={() => toggleSubject(s)} style={{
+                      padding: "8px 16px", borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: "pointer", transition: "all 0.15s",
+                      border: active ? `1px solid ${C.primary}55` : `1px solid ${C.outline}33`,
+                      background: active ? `${C.primary}20` : "transparent",
+                      color: active ? C.primary : C.textMuted,
+                    }}>
+                      {active ? "✓ " : ""}{s}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Topic Focus */}
+            <div>
+              <div style={{ fontSize: 10, color: C.textMuted, marginBottom: 6, textTransform: "uppercase", letterSpacing: 1 }}>Topic Focus (optional)</div>
+              <input
+                value={cfgTopicFocus}
+                onChange={e => setCfgTopicFocus(e.target.value)}
+                placeholder="e.g. Organic Chemistry, Rotational Mechanics, Integration"
+                style={inputStyle}
+              />
+            </div>
+          </div>
+        )}
 
         {/* Global Stats */}
         <div style={{ display: "flex", gap: 16, marginBottom: 24, animation: "fade-in 0.4s ease-out" }}>
           <StatCard label="Due Cards" icon="⏰" value={dueCount} glow={dueCount > 0 ? C.error : C.secondary} />
           <StatCard label="Avg Accuracy" icon="🎯" value={`${Math.round(overallAccuracy)}%`} glow={overallAccuracy > 75 ? C.secondary : C.tertiary} />
-          <StatCard label="Micro Sessions" icon="⚡" value={microToday} glow={C.primary} />
-          <StatCard label="Total Practice (Min)" icon="⏱" value={totalMicroMin} glow={C.tertiary} />
+          <StatCard label="Plan Progress" icon="📈" value={`${Math.round(planProgressPct)}%`} glow={planProgressPct === 100 ? C.secondary : planProgressPct > 0 ? C.tertiary : C.textMuted} />
+          <StatCard label="Total Practice" icon="⏱" value={`${totalMicroMin}m`} glow={C.primary} />
         </div>
 
         {/* Split Grid */}
@@ -239,7 +362,7 @@ export default function Dashboard() {
                   <div style={{ flex: 1 }}>
                     <div style={{ fontSize: 10, color: C.primary, textTransform: "uppercase", letterSpacing: 1.5, fontWeight: 800, marginBottom: 4 }}>AI Adaptive Recommendation</div>
                     <div style={{ fontSize: 14, color: C.textPrimary, lineHeight: 1.5 }}>
-                      Your accuracy in <strong style={{color: C.tertiary}}>{topWeak.topic}</strong> is struggling (<span style={{color: C.error}}>{topWeak.score}%</span>). We added 5 priority cards to your revision queue.
+                      Your accuracy in <strong style={{color: C.tertiary}}>{topWeak.topic}</strong> is struggling (<span style={{color: C.error}}>{topWeak.score || topWeak.accuracy}%</span>). We added 5 priority cards to your revision queue.
                     </div>
                   </div>
                 </div>
@@ -249,14 +372,41 @@ export default function Dashboard() {
             {/* Daily Activity Timeline */}
             <div style={{ ...glass({ padding: "24px" }) }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-                <div style={{ fontSize: 12, color: C.textPrimary, textTransform: "uppercase", letterSpacing: 1.2, fontWeight: 700 }}>📅 Today's Timeline</div>
+                <div style={{ fontSize: 12, color: C.textPrimary, textTransform: "uppercase", letterSpacing: 1.2, fontWeight: 700 }}>📅 Today's AI Study Plan</div>
                 {planItems.length > 0 && <div style={{ fontSize: 11, color: C.textMuted }}>{doneCount} / {planItems.length} Completed</div>}
               </div>
 
-              {planItems.length === 0 ? (
+              {/* Generating skeleton */}
+              {generatingPlan ? (
+                <div style={{ padding: "20px 0" }}>
+                  {[1,2,3,4,5].map(i => (
+                    <div key={i} style={{ display: "flex", gap: 16, marginBottom: 14, alignItems: "center" }}>
+                      <Skeleton w={60} h={16} r={4} />
+                      <Skeleton w={12} h={12} r={6} />
+                      <Skeleton w="70%" h={18} r={6} />
+                    </div>
+                  ))}
+                  <div style={{ textAlign: "center", fontSize: 12, color: C.textMuted, marginTop: 8 }}>
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ width: 14, height: 14, border: `2px solid ${C.primary}44`, borderTopColor: C.primary, borderRadius: "50%", animation: "spin 0.8s linear infinite", display: "inline-block" }} />
+                      AI is generating your personalized plan…
+                    </span>
+                  </div>
+                </div>
+              ) : planItems.length === 0 ? (
                 <div style={{ padding: "40px 0", textAlign: "center", color: C.textMuted }}>
-                  <div style={{ fontSize: 32, marginBottom: 8 }}>📋</div>
-                  <div style={{ fontSize: 13 }}>Timeline is empty. Generate a plan!</div>
+                  <div style={{ fontSize: 42, marginBottom: 12 }}>📋</div>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: C.textPrimary, marginBottom: 6 }}>No Plan Yet</div>
+                  <div style={{ fontSize: 12, maxWidth: 320, margin: "0 auto 18px", lineHeight: 1.6 }}>
+                    Click <strong style={{ color: C.primary }}>⚙️ Config</strong> to choose your subjects & hours, then click <strong style={{ color: C.primary }}>✨ Generate AI Plan</strong>
+                  </div>
+                  <button
+                    className="cfg-btn"
+                    onClick={() => setShowConfig(true)}
+                    style={{ background: `${C.primary}15`, color: C.primary, border: `1px solid ${C.primary}33`, borderRadius: 9, padding: "9px 18px", fontSize: 12, fontWeight: 600, cursor: "pointer", transition: "all 0.15s" }}
+                  >
+                    ⚙️ Open Config
+                  </button>
                 </div>
               ) : (
                 <div style={{ position: "relative" }}>
@@ -273,9 +423,19 @@ export default function Dashboard() {
                         <div style={{ flex: 1, cursor: "pointer" }} onClick={() => setDoneItems(p => ({...p, [i]: !p[i]}))}>
                          <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 4 }}>
                            <span style={{ fontSize: 9, fontWeight: 800, color: meta.badge.color, background: meta.badge.bg, padding: "2px 6px", borderRadius: 4 }}>{item.type}</span>
+                           {item.priority && (
+                             <span style={{ fontSize: 8, fontWeight: 700, padding: "2px 6px", borderRadius: 4, textTransform: "uppercase",
+                               color: item.priority === "high" ? C.error : item.priority === "medium" ? C.tertiary : C.textMuted,
+                               background: item.priority === "high" ? `${C.error}15` : item.priority === "medium" ? `${C.tertiary}15` : `${C.textMuted}15`,
+                             }}>{item.priority}</span>
+                           )}
                            <span style={{ fontSize: 13, fontWeight: 700, color: done ? C.textMuted : C.textPrimary, textDecoration: done ? "line-through" : "none" }}>{item.topic}</span>
                          </div>
-                         {item.detail && <div style={{ fontSize: 11, color: C.textMuted }}>{item.detail}</div>}
+                         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                           {item.subject && <span style={{ fontSize: 10, color: C.primary, background: `${C.primary}12`, padding: "2px 8px", borderRadius: 4, fontWeight: 600 }}>{item.subject}</span>}
+                           {item.duration_min && <span style={{ fontSize: 10, color: C.textMuted }}>⏱ {item.duration_min}min</span>}
+                         </div>
+                         {item.detail && <div style={{ fontSize: 11, color: C.textMuted, marginTop: 3 }}>{item.detail}</div>}
                         </div>
                       </div>
                     );
@@ -309,7 +469,7 @@ export default function Dashboard() {
                    {weakTopics.slice(0, 3).map((w, i) => (
                      <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 12px", background: C.surfaceTop, borderRadius: 8 }}>
                        <span style={{ fontSize: 11, color: C.textPrimary, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", width: "60%" }}>{w.topic}</span>
-                       <span style={{ fontSize: 11, fontWeight: 700, color: w.score < 50 ? C.error : C.tertiary }}>{w.score}%</span>
+                       <span style={{ fontSize: 11, fontWeight: 700, color: (w.score || w.accuracy || 0) < 50 ? C.error : C.tertiary }}>{w.score || w.accuracy}%</span>
                      </div>
                    ))}
                  </div>
