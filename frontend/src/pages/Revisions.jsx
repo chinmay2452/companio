@@ -4,18 +4,18 @@ import { useRealtimeStore } from "../hooks/useRealtimeStore";
 
 /* ── Design tokens ──────────────────────────────────────────────── */
 const C = {
-  bg:         "#060e1f",
-  surface:    "#0f192e",
-  surfaceHi:  "#151f36",
+  bg: "#060e1f",
+  surface: "#0f192e",
+  surfaceHi: "#151f36",
   surfaceTop: "#1a253e",
-  primary:    "#aba3ff",
+  primary: "#aba3ff",
   primaryDim: "#6d5fef",
-  secondary:  "#23eea8",
-  tertiary:   "#ffdb8f",
-  error:      "#ff6e84",
-  textPrimary:"#dee5fd",
-  textMuted:  "#a3abc1",
-  outline:    "#40485b",
+  secondary: "#23eea8",
+  tertiary: "#ffdb8f",
+  error: "#ff6e84",
+  textPrimary: "#dee5fd",
+  textMuted: "#a3abc1",
+  outline: "#40485b",
 };
 
 const glass = (extra = {}) => ({
@@ -30,10 +30,10 @@ const glass = (extra = {}) => ({
 const SUBJECTS = ["Physics", "Chemistry", "Biology", "Maths", "History", "Polity"];
 
 const SCORES = [
-  { val: 0, label: "Again",   color: C.error,     desc: "Blackout" },
-  { val: 2, label: "Hard",    color: C.tertiary,  desc: "Familiar" },
-  { val: 3, label: "Good",    color: C.primary,   desc: "Effort" },
-  { val: 4, label: "Easy",    color: "#4a9eff",   desc: "Hesitation" },
+  { val: 0, label: "Again", color: C.error, desc: "Blackout" },
+  { val: 2, label: "Hard", color: C.tertiary, desc: "Familiar" },
+  { val: 3, label: "Good", color: C.primary, desc: "Effort" },
+  { val: 4, label: "Easy", color: "#4a9eff", desc: "Hesitation" },
   { val: 5, label: "Perfect", color: C.secondary, desc: "Instant" },
 ];
 
@@ -59,7 +59,7 @@ function formatCountdown(dueDate) {
   const h = Math.floor(diff / 3600000);
   const m = Math.floor((diff % 3600000) / 60000);
   if (h === 0) return { label: `in ${m}m`, color: C.tertiary };
-  if (h < 24)  return { label: `in ${h}h ${m}m`, color: C.tertiary };
+  if (h < 24) return { label: `in ${h}h ${m}m`, color: C.tertiary };
   const d = Math.floor(h / 24);
   return { label: d === 1 ? "Tomorrow" : `in ${d} days`, color: C.textMuted };
 }
@@ -81,7 +81,7 @@ function MemoryHealthBar({ pct }) {
         }} />
       </div>
       <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6 }}>
-        {["Needs Work","Building","Good","Strong","Excellent"].map((l, i) => (
+        {["Needs Work", "Building", "Good", "Strong", "Excellent"].map((l, i) => (
           <span key={i} style={{ fontSize: 10, color: C.outline }}>{l}</span>
         ))}
       </div>
@@ -91,16 +91,16 @@ function MemoryHealthBar({ pct }) {
 
 /* ── Forgetting Curve Visualization ─────────────────────────────── */
 function ForgettingCurve({ memHealth }) {
-  const S = Math.max(1.5, memHealth / 10); 
+  const S = Math.max(1.5, memHealth / 10);
   const days = Array.from({ length: 14 }, (_, i) => i);
   const data = days.map(t => ({ t, R: Math.exp(-t / S) * 100 }));
-  
+
   const width = 300;
   const height = 120;
   const padding = { top: 20, right: 10, bottom: 20, left: 30 };
   const innerW = width - padding.left - padding.right;
   const innerH = height - padding.top - padding.bottom;
-  
+
   const points = data.map((d, i) => {
     const x = padding.left + (i / (days.length - 1)) * innerW;
     const y = padding.top + innerH - (d.R / 100) * innerH;
@@ -109,7 +109,7 @@ function ForgettingCurve({ memHealth }) {
 
   return (
     <div style={{ ...glass({ padding: "18px 20px", marginBottom: 16 }) }}>
-      <div style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 1.4, fontWeight: 700, marginBottom: 14 }}>📉 Forgetting Curve (Ebbinghaus)</div>
+      <div style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 1.4, fontWeight: 700, marginBottom: 14 }}>📉 Forgetting Curve</div>
       <div style={{ position: "relative", width: "100%", height, background: `${C.surfaceTop}66`, borderRadius: 8, overflow: "hidden" }}>
         <svg viewBox={`0 0 ${width} ${height}`} style={{ width: "100%", height: "100%", overflow: "visible" }}>
           <defs>
@@ -129,7 +129,7 @@ function ForgettingCurve({ memHealth }) {
             );
           })}
           {/* Path */}
-          <polyline points={`${padding.left},${padding.top+innerH} ${points} ${width-padding.right},${padding.top+innerH}`} fill="url(#curveGrad)" />
+          <polyline points={`${padding.left},${padding.top + innerH} ${points} ${width - padding.right},${padding.top + innerH}`} fill="url(#curveGrad)" />
           <polyline points={points} fill="none" stroke={C.secondary} strokeWidth={3} strokeLinecap="round" strokeLinejoin="round" style={{ filter: `drop-shadow(0 4px 12px ${C.secondary}66)` }} />
           {/* X axis labels */}
           {[0, 7, 13].map(d => {
@@ -139,7 +139,7 @@ function ForgettingCurve({ memHealth }) {
         </svg>
       </div>
       <div style={{ fontSize: 10, color: C.textMuted, marginTop: 12, lineHeight: 1.5 }}>
-        Based on your memory health (<strong style={{color:C.secondary}}>{memHealth}%</strong>), this is how your retention decays over 14 days without review. Spaced repetition flattens this curve!
+        Based on your memory health (<strong style={{ color: C.secondary }}>{memHealth}%</strong>), this is how your retention decays over 14 days without review. Spaced repetition flattens this curve!
       </div>
     </div>
   );
@@ -204,19 +204,19 @@ export default function Revisions() {
   const [tab, setTab] = useState("review");
 
   // Manage state
-  const [showForm,      setShowForm]      = useState(false);
-  const [formSubject,   setFormSubject]   = useState("Physics");
-  const [formTopic,     setFormTopic]     = useState("");
-  const [formFront,     setFormFront]     = useState("");
-  const [formBack,      setFormBack]      = useState("");
-  const [saving,        setSaving]        = useState(false);
-  const [confirmClear,  setConfirmClear]  = useState(false);
+  const [showForm, setShowForm] = useState(false);
+  const [formSubject, setFormSubject] = useState("Physics");
+  const [formTopic, setFormTopic] = useState("");
+  const [formFront, setFormFront] = useState("");
+  const [formBack, setFormBack] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [confirmClear, setConfirmClear] = useState(false);
 
   // Parse realtime arrays
   const allCards = useMemo(() => (storeData.cards || []), [storeData.cards]);
   // Due cards array
   const dueCardsList = useMemo(() => allCards.filter(c => new Date(c.due_date) <= new Date()), [allCards]);
-  
+
   // We manage idx in state. When realtime dueCardsList shrinks, idx might overflow.
   const [idx, setIdx] = useState(0);
   const [flipped, setFlipped] = useState(false);
@@ -244,7 +244,7 @@ export default function Revisions() {
 
   // ── Review handlers ───────────────────────────────────────────────
   const handleScore = async (quality) => {
-    try { await reviewCard(userId, card.id, quality); refreshAll(); } catch {}
+    try { await reviewCard(userId, card.id, quality); refreshAll(); } catch { }
     setFlipped(false);
     // Move to next card in array (optimistic)
     setIdx(i => i + 1);
@@ -306,7 +306,7 @@ export default function Revisions() {
             </h1>
             <p style={{ color: C.textMuted, fontSize: 12, margin: "5px 0 0", display: "flex", alignItems: "center", gap: 10 }}>
               Live syncing • SM-2 algorithm schedule tracking
-              <span className="live-badge"><span style={{width:6, height:6, borderRadius:"50%", background:C.secondary, animation: "pulse-dot 1.5s infinite"}}/> Live Due Queue</span>
+              <span className="live-badge"><span style={{ width: 6, height: 6, borderRadius: "50%", background: C.secondary, animation: "pulse-dot 1.5s infinite" }} /> Live Due Queue</span>
             </p>
           </div>
         </div>
@@ -340,32 +340,32 @@ export default function Revisions() {
           <div style={{ animation: "fade-in 0.3s ease" }}>
             {!isReviewing ? (
               <>
-              {/* Stat cards */}
-            <div style={{ display: "flex", gap: 14, marginBottom: 16 }}>
-              <StatCard icon="📚" label="Cards Due"     value={dueCardsList.length}        sub={dueCardsList.length > 0 ? "Needs review today" : "All caught up!"}  glow={C.error}     />
-              <StatCard icon="🧠" label="Avg Retention" value={`${memHealth}%`}         sub="Memory health score"                                           glow={C.secondary} />
-              <StatCard icon="⏰" label="Next Review"   value={nextDue}                 sub="Upcoming scheduled"                                            glow={C.tertiary}  />
-            </div>
+                {/* Stat cards */}
+                <div style={{ display: "flex", gap: 14, marginBottom: 16 }}>
+                  <StatCard icon="📚" label="Cards Due" value={dueCardsList.length} sub={dueCardsList.length > 0 ? "Needs review today" : "All caught up!"} glow={C.error} />
+                  <StatCard icon="🧠" label="Avg Retention" value={`${memHealth}%`} sub="Memory health score" glow={C.secondary} />
+                  <StatCard icon="⏰" label="Next Review" value={nextDue} sub="Upcoming scheduled" glow={C.tertiary} />
+                </div>
 
-            {/* Memory health */}
-            <MemoryHealthBar pct={memHealth} />
+                {/* Memory health */}
+                <MemoryHealthBar pct={memHealth} />
 
-            {/* Forgetting Curve */}
-            <ForgettingCurve memHealth={memHealth} />
+                {/* Forgetting Curve */}
+                <ForgettingCurve memHealth={memHealth} />
 
-            {/* Quick review CTA */}
-            {dueCardsList.length > 0 && idx < dueCardsList.length && (
-              <button
-                className="cta-btn"
-                onClick={() => { setIdx(0); setFlipped(false); setIsReviewing(true); }}
-                style={{
-                  width: "100%", padding: "14px", marginBottom: 16, border: "none", borderRadius: 12,
-                  background: `linear-gradient(135deg,${C.primary},${C.primaryDim})`, color: "#fff", fontSize: 14, fontWeight: 800, cursor: "pointer", letterSpacing: -0.3, fontFamily: "Manrope,sans-serif", boxShadow: `0 6px 24px ${C.primary}44`, transition: "all 0.2s",
-                }}
-              >
-                ⚡ Start Quick Review ({dueCardsList.length} cards)
-              </button>
-            )}
+                {/* Quick review CTA */}
+                {dueCardsList.length > 0 && idx < dueCardsList.length && (
+                  <button
+                    className="cta-btn"
+                    onClick={() => { setIdx(0); setFlipped(false); setIsReviewing(true); }}
+                    style={{
+                      width: "100%", padding: "14px", marginBottom: 16, border: "none", borderRadius: 12,
+                      background: `linear-gradient(135deg,${C.primary},${C.primaryDim})`, color: "#fff", fontSize: 14, fontWeight: 800, cursor: "pointer", letterSpacing: -0.3, fontFamily: "Manrope,sans-serif", boxShadow: `0 6px 24px ${C.primary}44`, transition: "all 0.2s",
+                    }}
+                  >
+                    ⚡ Start Quick Review ({dueCardsList.length} cards)
+                  </button>
+                )}
 
                 {/* Upcoming reviews */}
                 <UpcomingList cards={allCards} onStartReview={() => setIsReviewing(true)} />
@@ -379,105 +379,105 @@ export default function Revisions() {
                   ← Back to Overview
                 </button>
                 {/* ── Active Review Session ─────────────────── */}
-            {dueCardsList.length === 0 ? (
-              /* Empty state */
-              <div style={{ ...glass({ padding: "56px 40px" }), textAlign: "center", animation: "fade-in 0.4s ease" }}>
-                <div style={{ fontSize: 54, marginBottom: 16 }}>✅</div>
-                <h3 style={{ fontSize: 20, fontWeight: 800, fontFamily: "Manrope,sans-serif", margin: "0 0 8px", color: C.secondary }}>
-                  {allCards.length === 0 ? "No Flashcards Yet" : "All Caught Up!"}
-                </h3>
-                <p style={{ fontSize: 13, color: C.textMuted, maxWidth: 360, margin: "0 auto 20px", lineHeight: 1.7 }}>
-                  {allCards.length === 0 ? "You haven't created any flashcards. Go to Manage Cards to get started!" : `All reviews done! Your next session is ${nextDue}. SM-2 intervals have been updated.`}
-                </p>
-                {allCards.length === 0 ? (
-                  <button className="cta-btn" onClick={() => setTab("manage")} style={{ background: `linear-gradient(135deg,${C.primary},${C.primaryDim})`, color: "#fff", border: "none", borderRadius: 10, padding: "11px 24px", fontSize: 13, fontWeight: 700, cursor: "pointer", transition: "all 0.2s" }}>➕ Create Your First Card</button>
-                ) : (
-                  <div style={{ ...glass({ padding: "14px 20px", display: "inline-flex", alignItems: "center", gap: 10 }) }}>
-                    <span style={{ fontSize: 22 }}>⏰</span>
-                    <div style={{ textAlign: "left" }}>
-                      <div style={{ fontSize: 12, color: C.textMuted }}>Next Review</div>
-                      <div style={{ fontSize: 16, fontWeight: 800, color: C.tertiary, fontFamily: "Manrope,sans-serif" }}>{nextDue}</div>
-                    </div>
-                  </div>
-                )}
-              </div>
-            ) : idx >= dueCardsList.length ? (
-              /* All reviewed */
-              <div style={{ ...glass({ padding: "52px 40px" }), textAlign: "center", border: `1px solid ${C.secondary}33`, animation: "fade-in 0.4s ease" }}>
-                <div style={{ fontSize: 52, marginBottom: 12 }}>🎉</div>
-                <h2 style={{ fontSize: 22, fontWeight: 800, color: C.secondary, fontFamily: "Manrope,sans-serif", margin: "0 0 8px" }}>All Cards Reviewed!</h2>
-                <p style={{ fontSize: 13, color: C.textMuted, maxWidth: 340, margin: "0 auto 24px", lineHeight: 1.7 }}>
-                  Great session! SM-2 intervals have been updated based on your recall ratings.
-                </p>
-                <button className="cta-btn" onClick={() => { setIdx(0); setFlipped(false); setIsReviewing(false); }} style={{ background: `linear-gradient(135deg,${C.primary},${C.primaryDim})`, color: "#fff", border: "none", borderRadius: 10, padding: "11px 24px", fontSize: 13, fontWeight: 700, cursor: "pointer", transition: "all 0.2s" }}>
-                  🔙 Back to Overview
-                </button>
-              </div>
-            ) : (
-              /* Active session */
-              <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-                {/* Progress bar */}
-                <div style={{ ...glass({ padding: "14px 18px" }) }}>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-                    <span style={{ fontSize: 11, fontWeight: 700, color: C.primary, background: `${C.primary}18`, padding: "3px 10px", borderRadius: 6 }}>Card {idx + 1} of {dueCardsList.length}</span>
-                    <span style={{ fontSize: 11, color: C.textMuted, fontFamily: "monospace" }}>{dueCardsList.length - idx} remaining · {progress}%</span>
-                  </div>
-                  <div style={{ height: 7, background: C.surfaceTop, borderRadius: 4, overflow: "hidden" }}>
-                    <div style={{ height: "100%", width: `${progress}%`, borderRadius: 4, transition: "width 0.5s ease", background: `linear-gradient(90deg,${C.primaryDim},${C.primary},${C.secondary})`, boxShadow: `0 0 10px ${C.primary}66` }} />
-                  </div>
-                </div>
-
-                {/* Flip card */}
-                {card && (
-                  <div
-                    onClick={() => setFlipped(p => !p)}
-                    style={{
-                      ...glass({ padding: "36px 32px", minHeight: 200, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", cursor: "pointer", textAlign: "center", transition: "all 0.3s", borderRadius: 16 }),
-                      border: flipped ? `1px solid ${C.primary}44` : `1px solid ${C.outline}33`,
-                      boxShadow: flipped ? `0 0 32px ${C.primary}18` : "none",
-                      background: flipped ? "linear-gradient(135deg,rgba(171,163,255,.06),rgba(109,95,239,.04))" : "rgba(15,25,46,0.85)",
-                    }}
-                  >
-                    <div style={{ fontSize: 10, color: C.textMuted, textTransform: "uppercase", letterSpacing: 1.4, marginBottom: 16, fontWeight: 700 }}>
-                      {flipped ? "Answer — tap to flip back" : "Question — tap to reveal answer"}
-                    </div>
-
-                    {!flipped ? (
-                      <>
-                        <div style={{ fontSize: 17, fontWeight: 700, lineHeight: 1.6, color: C.textPrimary, marginBottom: 14 }}>{card.front}</div>
-                        <div style={{ display: "flex", gap: 8 }}>
-                          <span style={{ fontSize: 11, fontWeight: 600, padding: "3px 10px", borderRadius: 6, background: `${C.primary}18`, color: C.primary }}>{card.subject}</span>
-                          <span style={{ fontSize: 11, padding: "3px 10px", borderRadius: 6, background: C.surfaceTop, color: C.textMuted }}>{card.topic}</span>
-                        </div>
-                      </>
+                {dueCardsList.length === 0 ? (
+                  /* Empty state */
+                  <div style={{ ...glass({ padding: "56px 40px" }), textAlign: "center", animation: "fade-in 0.4s ease" }}>
+                    <div style={{ fontSize: 54, marginBottom: 16 }}>✅</div>
+                    <h3 style={{ fontSize: 20, fontWeight: 800, fontFamily: "Manrope,sans-serif", margin: "0 0 8px", color: C.secondary }}>
+                      {allCards.length === 0 ? "No Flashcards Yet" : "All Caught Up!"}
+                    </h3>
+                    <p style={{ fontSize: 13, color: C.textMuted, maxWidth: 360, margin: "0 auto 20px", lineHeight: 1.7 }}>
+                      {allCards.length === 0 ? "You haven't created any flashcards. Go to Manage Cards to get started!" : `All reviews done! Your next session is ${nextDue}. SM-2 intervals have been updated.`}
+                    </p>
+                    {allCards.length === 0 ? (
+                      <button className="cta-btn" onClick={() => setTab("manage")} style={{ background: `linear-gradient(135deg,${C.primary},${C.primaryDim})`, color: "#fff", border: "none", borderRadius: 10, padding: "11px 24px", fontSize: 13, fontWeight: 700, cursor: "pointer", transition: "all 0.2s" }}>➕ Create Your First Card</button>
                     ) : (
-                      <div style={{ animation: "flip-reveal 0.25s ease" }}>
-                        <div style={{ fontSize: 16, fontWeight: 600, color: C.primary, lineHeight: 1.6, marginBottom: 6 }}>{card.back}</div>
-                        <div style={{ fontSize: 11, color: C.textMuted }}>Rate your recall below ↓</div>
+                      <div style={{ ...glass({ padding: "14px 20px", display: "inline-flex", alignItems: "center", gap: 10 }) }}>
+                        <span style={{ fontSize: 22 }}>⏰</span>
+                        <div style={{ textAlign: "left" }}>
+                          <div style={{ fontSize: 12, color: C.textMuted }}>Next Review</div>
+                          <div style={{ fontSize: 16, fontWeight: 800, color: C.tertiary, fontFamily: "Manrope,sans-serif" }}>{nextDue}</div>
+                        </div>
                       </div>
                     )}
                   </div>
-                )}
-
-                {/* Score buttons */}
-                {flipped ? (
-                  <div style={{ animation: "fade-in 0.25s ease" }}>
-                    <div style={{ fontSize: 11, color: C.textMuted, textAlign: "center", marginBottom: 10 }}>How well did you remember?</div>
-                    <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 8 }}>
-                      {SCORES.map(sc => (
-                        <button key={sc.val} className="score-btn" onClick={() => handleScore(sc.val)} style={{ padding: "12px 6px", borderRadius: 10, cursor: "pointer", textAlign: "center", background: `${sc.color}12`, border: `1px solid ${sc.color}33`, transition: "all 0.15s" }}>
-                          <div style={{ fontSize: 13, fontWeight: 800, color: sc.color, fontFamily: "Manrope,sans-serif" }}>{sc.label}</div>
-                          <div style={{ fontSize: 10, color: C.textMuted, marginTop: 3 }}>{sc.desc}</div>
-                        </button>
-                      ))}
-                    </div>
+                ) : idx >= dueCardsList.length ? (
+                  /* All reviewed */
+                  <div style={{ ...glass({ padding: "52px 40px" }), textAlign: "center", border: `1px solid ${C.secondary}33`, animation: "fade-in 0.4s ease" }}>
+                    <div style={{ fontSize: 52, marginBottom: 12 }}>🎉</div>
+                    <h2 style={{ fontSize: 22, fontWeight: 800, color: C.secondary, fontFamily: "Manrope,sans-serif", margin: "0 0 8px" }}>All Cards Reviewed!</h2>
+                    <p style={{ fontSize: 13, color: C.textMuted, maxWidth: 340, margin: "0 auto 24px", lineHeight: 1.7 }}>
+                      Great session! SM-2 intervals have been updated based on your recall ratings.
+                    </p>
+                    <button className="cta-btn" onClick={() => { setIdx(0); setFlipped(false); setIsReviewing(false); }} style={{ background: `linear-gradient(135deg,${C.primary},${C.primaryDim})`, color: "#fff", border: "none", borderRadius: 10, padding: "11px 24px", fontSize: 13, fontWeight: 700, cursor: "pointer", transition: "all 0.2s" }}>
+                      🔙 Back to Overview
+                    </button>
                   </div>
                 ) : (
-                  <div style={{ textAlign: "center", fontSize: 12, color: C.textMuted }}>👆 Tap the card to reveal the answer</div>
+                  /* Active session */
+                  <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                    {/* Progress bar */}
+                    <div style={{ ...glass({ padding: "14px 18px" }) }}>
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: C.primary, background: `${C.primary}18`, padding: "3px 10px", borderRadius: 6 }}>Card {idx + 1} of {dueCardsList.length}</span>
+                        <span style={{ fontSize: 11, color: C.textMuted, fontFamily: "monospace" }}>{dueCardsList.length - idx} remaining · {progress}%</span>
+                      </div>
+                      <div style={{ height: 7, background: C.surfaceTop, borderRadius: 4, overflow: "hidden" }}>
+                        <div style={{ height: "100%", width: `${progress}%`, borderRadius: 4, transition: "width 0.5s ease", background: `linear-gradient(90deg,${C.primaryDim},${C.primary},${C.secondary})`, boxShadow: `0 0 10px ${C.primary}66` }} />
+                      </div>
+                    </div>
+
+                    {/* Flip card */}
+                    {card && (
+                      <div
+                        onClick={() => setFlipped(p => !p)}
+                        style={{
+                          ...glass({ padding: "36px 32px", minHeight: 200, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", cursor: "pointer", textAlign: "center", transition: "all 0.3s", borderRadius: 16 }),
+                          border: flipped ? `1px solid ${C.primary}44` : `1px solid ${C.outline}33`,
+                          boxShadow: flipped ? `0 0 32px ${C.primary}18` : "none",
+                          background: flipped ? "linear-gradient(135deg,rgba(171,163,255,.06),rgba(109,95,239,.04))" : "rgba(15,25,46,0.85)",
+                        }}
+                      >
+                        <div style={{ fontSize: 10, color: C.textMuted, textTransform: "uppercase", letterSpacing: 1.4, marginBottom: 16, fontWeight: 700 }}>
+                          {flipped ? "Answer — tap to flip back" : "Question — tap to reveal answer"}
+                        </div>
+
+                        {!flipped ? (
+                          <>
+                            <div style={{ fontSize: 17, fontWeight: 700, lineHeight: 1.6, color: C.textPrimary, marginBottom: 14 }}>{card.front}</div>
+                            <div style={{ display: "flex", gap: 8 }}>
+                              <span style={{ fontSize: 11, fontWeight: 600, padding: "3px 10px", borderRadius: 6, background: `${C.primary}18`, color: C.primary }}>{card.subject}</span>
+                              <span style={{ fontSize: 11, padding: "3px 10px", borderRadius: 6, background: C.surfaceTop, color: C.textMuted }}>{card.topic}</span>
+                            </div>
+                          </>
+                        ) : (
+                          <div style={{ animation: "flip-reveal 0.25s ease" }}>
+                            <div style={{ fontSize: 16, fontWeight: 600, color: C.primary, lineHeight: 1.6, marginBottom: 6 }}>{card.back}</div>
+                            <div style={{ fontSize: 11, color: C.textMuted }}>Rate your recall below ↓</div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Score buttons */}
+                    {flipped ? (
+                      <div style={{ animation: "fade-in 0.25s ease" }}>
+                        <div style={{ fontSize: 11, color: C.textMuted, textAlign: "center", marginBottom: 10 }}>How well did you remember?</div>
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 8 }}>
+                          {SCORES.map(sc => (
+                            <button key={sc.val} className="score-btn" onClick={() => handleScore(sc.val)} style={{ padding: "12px 6px", borderRadius: 10, cursor: "pointer", textAlign: "center", background: `${sc.color}12`, border: `1px solid ${sc.color}33`, transition: "all 0.15s" }}>
+                              <div style={{ fontSize: 13, fontWeight: 800, color: sc.color, fontFamily: "Manrope,sans-serif" }}>{sc.label}</div>
+                              <div style={{ fontSize: 10, color: C.textMuted, marginTop: 3 }}>{sc.desc}</div>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    ) : (
+                      <div style={{ textAlign: "center", fontSize: 12, color: C.textMuted }}>👆 Tap the card to reveal the answer</div>
+                    )}
+                  </div>
                 )}
-              </div>
-            )}
-            </>
+              </>
             )}
           </div>
         )}
