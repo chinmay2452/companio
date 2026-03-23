@@ -1,6 +1,7 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useUser, useIsOnline } from '../../store/useAppStore';
 import { api } from '../../lib/api';
+import { useRealtimeStore } from '../../hooks/useRealtimeStore';
 
 /* ── Design tokens ──────────────────────────────────────────────── */
 const C = {
@@ -88,8 +89,9 @@ function DurCard({ opt, selected, onSelect }) {
 
 /* ══════════════════════════════════════════════════════════════════ */
 export default function MicroTimeMode() {
-  const user     = useUser();
+  const user = useUser();
   const isOnline = useIsOnline();
+  const { data: storeData } = useRealtimeStore();
 
   const [screen,           setScreen]           = useState(SCREENS.PICKER);
   const [duration,         setDuration]         = useState(5);
@@ -108,6 +110,37 @@ export default function MicroTimeMode() {
   const [studyMode,        setStudyMode]        = useState('quiz'); // 'quiz' or 'equations'
   const [generatedEquations, setGeneratedEquations] = useState([]);
   const timerRef = useRef(null);
+
+  // Live Analytics from Postgres
+  const stats = useMemo(() => {
+    const list = storeData.micro_sessions || [];
+    let sessionsToday = 0;
+    let totalMins = 0;
+    let accSum = 0;
+    let validAccSessions = 0;
+    const today = new Date().toISOString().split('T')[0];
+    
+    list.forEach(s => {
+      const dbDate = (s.created_at || s.completed_at || '').split('T')[0];
+      if (dbDate === today) sessionsToday++;
+      
+      if (s.completed) {
+        totalMins += (s.duration_minutes || 0);
+        if (s.total_items > 0) {
+          accSum += (s.correct_count / s.total_items) * 100;
+          validAccSessions++;
+        }
+      }
+    });
+
+    // We can also fetch streak directly from the store if we have a table, but for now fallback to the session's prop or 0
+    return {
+      streak: list.length > 0 ? (list[0].streak || 0) : 0,
+      today: sessionsToday,
+      totalMins: Math.round(totalMins),
+      avgAcc: validAccSessions > 0 ? Math.round(accSum / validAccSessions) : 0,
+    };
+  }, [storeData]);
 
   const stopTimer = () => { if (timerRef.current) clearInterval(timerRef.current); };
 
@@ -161,7 +194,7 @@ export default function MicroTimeMode() {
     stopTimer();
     setScreen(SCREENS.LOADING);
     const fallbackStats = {
-      streak: 0,
+      streak: stats.streak,
       accuracy: forceResults.length ? (forceResults.filter(r => r.correct).length / forceResults.length) * 100 : 0,
       oldResults: forceResults,
     };
@@ -174,7 +207,6 @@ export default function MicroTimeMode() {
     } catch {
       setFinalStats(fallbackStats);
     }
-    setSessionsToday(s => s + 1);
     setScreen(SCREENS.RESULTS);
   };
 
@@ -209,7 +241,7 @@ export default function MicroTimeMode() {
   /* ── SCREEN: RESULTS ─────────────────────────────────────────── */
   if (screen === SCREENS.RESULTS) {
     const acc    = finalStats?.accuracy ?? 0;
-    const streak = finalStats?.streak ?? 0;
+    const streak = finalStats?.streak ?? stats.streak;
     let msg = "Tough session. Revision scheduled automatically ✓";
     if (acc >= 80) msg = "Excellent! Keep the streak alive 🚀";
     else if (acc >= 50) msg = "Good effort. Review the missed ones 💪";
@@ -284,7 +316,7 @@ export default function MicroTimeMode() {
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 6, background: `${C.tertiary}18`, border: `1px solid ${C.tertiary}33`, borderRadius: 20, padding: "4px 12px" }}>
                 <span style={{ fontSize: 13 }}>🔥</span>
-                <span style={{ fontSize: 11, fontWeight: 700, color: C.tertiary }}>Streak</span>
+                <span style={{ fontSize: 11, fontWeight: 700, color: C.tertiary }}>{stats.streak} Streak</span>
               </div>
             </div>
             <div style={{ height: 6, background: C.surfaceTop, borderRadius: 3, overflow: "hidden" }}>
@@ -453,6 +485,8 @@ export default function MicroTimeMode() {
         @keyframes fade-in   { from{opacity:0;transform:translateY(6px)}  to{opacity:1;transform:none} }
         @keyframes lightning { 0%,100%{opacity:.7} 50%{opacity:1} }
         .cta-btn:hover { filter: brightness(1.1); transform: scale(1.02); }
+        .live-badge { display: inline-flex; alignItems: center; gap: 6px; font-size: 10px; font-weight: 700; color: ${C.secondary}; text-transform: uppercase; letter-spacing: 1px; padding: 4px 10px; background: ${C.secondary}15; border-radius: 12px; border: 1px solid ${C.secondary}33; }
+        @keyframes pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
       `}</style>
       <div style={{ padding: "24px 28px", fontFamily: "Inter,sans-serif", color: C.textPrimary, maxWidth: 640, margin: "0 auto" }}>
 
@@ -460,12 +494,15 @@ export default function MicroTimeMode() {
         <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 20 }}>
           <div>
             <h1 style={{ fontSize: 24, fontWeight: 800, letterSpacing: -0.5, fontFamily: "Manrope,sans-serif", margin: 0 }}>⚡ Micro Learn</h1>
-            <p style={{ color: C.textMuted, fontSize: 13, margin: "5px 0 0" }}>High-impact study sessions for when time is short</p>
+            <p style={{ color: C.textMuted, fontSize: 13, margin: "5px 0 0", display: "flex", alignItems: "center", gap: 10 }}>
+              High-impact study sessions for when time is short
+              <span className="live-badge"><span style={{width:6, height:6, borderRadius:"50%", background:C.secondary, animation: "pulse-dot 1.5s infinite"}}/> Live Sync</span>
+            </p>
           </div>
           <div style={{ ...glass({ padding: "8px 16px" }), display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
             <span style={{ fontSize: 16, animation: "lightning 2s ease-in-out infinite" }}>🔥</span>
             <div>
-              <div style={{ fontSize: 12, fontWeight: 800, color: C.tertiary, fontFamily: "Manrope,sans-serif" }}>Streak Active!</div>
+              <div style={{ fontSize: 12, fontWeight: 800, color: C.tertiary, fontFamily: "Manrope,sans-serif" }}>{stats.streak} Day Streak</div>
               <div style={{ fontSize: 10, color: C.textMuted }}>Keep it going</div>
             </div>
           </div>
@@ -493,9 +530,9 @@ export default function MicroTimeMode() {
 
         {/* Stats */}
         <div style={{ display: "flex", gap: 12, marginBottom: 20 }}>
-          <StatChip icon="🎯" label="Sessions Today" value={sessionsToday}  glow={C.secondary} />
-          <StatChip icon="⏱" label="Session Length"  value={`${duration}m`} glow={C.primary}   />
-          <StatChip icon="📚" label="Subject"          value={subject}        glow={C.tertiary}  />
+          <StatChip icon="🎯" label="Sessions Today" value={stats.today}  glow={C.secondary} />
+          <StatChip icon="✅" label="Avg Accuracy"  value={`${stats.avgAcc}%`} glow={stats.avgAcc > 70 ? C.primary : C.tertiary}   />
+          <StatChip icon="⏱️" label="Total Minutes" value={stats.totalMins} glow="#4a9eff"  />
         </div>
 
         {/* Inline config */}

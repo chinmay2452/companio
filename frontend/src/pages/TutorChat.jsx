@@ -1,6 +1,7 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { api } from "../lib/api";
 import { useUser } from "../store/useAppStore";
+import { useRealtimeStore } from "../hooks/useRealtimeStore";
 
 /* ── Design tokens ─────────────────────────────────────────────── */
 const C = {
@@ -29,7 +30,7 @@ const glass = (extra = {}) => ({
 
 const SUBJECTS = ["Physics", "Chemistry", "Biology", "Maths", "History", "Polity"];
 
-const SUGGESTIONS = [
+const FALLBACK_SUGGESTIONS = [
   "Explain Newton's second law",
   "What is hybridisation?",
   "How does photosynthesis work?",
@@ -74,16 +75,43 @@ function AIAvatar() {
 
 /* ── Main component ─────────────────────────────────────────────── */
 export default function TutorChat() {
-  const user    = useUser();
-  const [msgs,    setMsgs]    = useState([
+  const user = useUser();
+  const { data: storeData } = useRealtimeStore();
+
+  const [msgs, setMsgs] = useState([
     { role: "ai", text: "Namaste! 🙏 I'm your Companio AI Tutor. Ask me anything — from Newton's Laws to organic reactions.\n\nEvery answer is grounded in NCERT textbooks, not hallucinated. Switch subjects using the selector above!" }
   ]);
-  const [input,   setInput]   = useState("");
+  const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [subject, setSubject] = useState("Physics");
   const [voiceActive, setVoiceActive] = useState(false);
-  const chatRef   = useRef(null);
-  const inputRef  = useRef(null);
+  const chatRef = useRef(null);
+  const inputRef = useRef(null);
+
+  // Derive Live Analytics
+  const { recentDoubts, mostAskedSubject } = useMemo(() => {
+    const sessions = storeData.tutor_sessions || [];
+    
+    // Most Asked Subject
+    const subjCounts = {};
+    sessions.forEach(s => {
+      if (s.subject) subjCounts[s.subject] = (subjCounts[s.subject] || 0) + 1;
+    });
+    let topSubj = "None";
+    let maxObj = 0;
+    for (const [s, c] of Object.entries(subjCounts)) {
+      if (c > maxObj) { maxObj = c; topSubj = s; }
+    }
+
+    // Recent Doubts array for chips
+    const recent = sessions.map(s => s.question).filter(Boolean).slice(0, 6);
+    
+    // Auto-select top subject initially if exists and it's the first render (we won't force it continuously to allow switching)
+    return { recentDoubts: recent, mostAskedSubject: topSubj };
+  }, [storeData]);
+
+  // Suggestions merge fallback and recent doubts
+  const activeSuggestions = recentDoubts.length > 0 ? recentDoubts : FALLBACK_SUGGESTIONS;
 
   useEffect(() => {
     chatRef.current?.scrollTo({ top: 99999, behavior: "smooth" });
@@ -141,6 +169,7 @@ export default function TutorChat() {
           0%,100% { box-shadow: 0 0 0 0 rgba(255,110,132,.4); }
           50%      { box-shadow: 0 0 0 8px rgba(255,110,132,0); }
         }
+        @keyframes pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
         .suggest-chip:hover { border-color: ${C.primary}66 !important; background: rgba(171,163,255,.08) !important; color: ${C.primary} !important; }
         .send-btn:hover { filter: brightness(1.12); transform: scale(1.04); }
         .subj-btn:hover { background: rgba(171,163,255,.08) !important; }
@@ -164,30 +193,35 @@ export default function TutorChat() {
               <h1 style={{ fontSize: 22, fontWeight: 800, letterSpacing: -0.5, fontFamily: "Manrope,sans-serif", margin: 0 }}>
                 💬 AI Tutor
               </h1>
-              <p style={{ color: C.textMuted, fontSize: 12, margin: "4px 0 0" }}>
-                RAG-grounded answers · NCERT textbooks · No hallucination
+              <p style={{ color: C.textMuted, fontSize: 12, margin: "4px 0 0", display: "flex", alignItems: "center", gap: 8 }}>
+                RAG-grounded answers · NCERT textbooks
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 10, fontWeight: 700, color: C.secondary, textTransform: "uppercase", letterSpacing: 1, padding: "3px 8px", background: `${C.secondary}15`, borderRadius: 12, border: `1px solid ${C.secondary}33` }}>
+                  <span style={{width:6, height:6, borderRadius:"50%", background:C.secondary, animation: "pulse-dot 1.5s infinite"}}/> Live Sync
+                </span>
               </p>
             </div>
-            {/* NCERT Badge */}
-            <div style={{
-              display: "flex", alignItems: "center", gap: 6,
-              background: `${C.secondary}12`, border: `1px solid ${C.secondary}44`,
-              borderRadius: 20, padding: "6px 14px",
-            }}>
-              <span style={{ fontSize: 13 }}>📚</span>
-              <span style={{ fontSize: 11, fontWeight: 700, color: C.secondary, letterSpacing: 0.5 }}>NCERT Grounded</span>
+            
+            <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+              {/* Analytics Badge: Most Asked Subject */}
+              {mostAskedSubject !== "None" && (
+                <div style={{ display: "flex", alignItems: "center", gap: 6, background: `${C.primary}12`, border: `1px solid ${C.primary}33`, borderRadius: 20, padding: "6px 14px" }}>
+                  <span style={{ fontSize: 13 }}>🔥</span>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: C.primary, letterSpacing: 0.5 }}>Most Asked: {mostAskedSubject}</span>
+                </div>
+              )}
+              {/* NCERT Badge */}
+              <div style={{ display: "flex", alignItems: "center", gap: 6, background: `${C.secondary}12`, border: `1px solid ${C.secondary}44`, borderRadius: 20, padding: "6px 14px" }}>
+                <span style={{ fontSize: 13 }}>📚</span>
+                <span style={{ fontSize: 11, fontWeight: 700, color: C.secondary, letterSpacing: 0.5 }}>NCERT Grounded</span>
+              </div>
             </div>
           </div>
 
           {/* Segmented subject control */}
-          <div style={{
-            display: "flex", background: C.surfaceTop, borderRadius: 10, padding: 3, gap: 2,
-          }}>
+          <div style={{ display: "flex", background: C.surfaceTop, borderRadius: 10, padding: 3, gap: 2 }}>
             {SUBJECTS.map(s => (
               <button
-                key={s}
-                className="subj-btn"
-                onClick={() => setSubject(s)}
+                key={s} className="subj-btn" onClick={() => setSubject(s)}
                 style={{
                   flex: 1, padding: "7px 4px", borderRadius: 8, border: "none", cursor: "pointer",
                   fontSize: 12, fontWeight: 600, transition: "all 0.2s",
@@ -195,42 +229,21 @@ export default function TutorChat() {
                   color: subject === s ? "#fff" : C.textMuted,
                   boxShadow: subject === s ? `0 2px 12px ${C.primary}44` : "none",
                 }}
-              >
-                {s}
-              </button>
+              >{s}</button>
             ))}
           </div>
         </div>
 
         {/* ── Chat message scroll area ────────────────────────── */}
-        <div
-          ref={chatRef}
-          style={{
-            flex: 1, overflowY: "auto", padding: "20px 28px",
-            display: "flex", flexDirection: "column", gap: 16, minHeight: 0,
-          }}
-        >
+        <div ref={chatRef} style={{ flex: 1, overflowY: "auto", padding: "20px 28px", display: "flex", flexDirection: "column", gap: 16, minHeight: 0 }}>
           {msgs.map((m, i) => (
-            <div
-              key={i}
-              style={{
-                display: "flex", flexDirection: "column",
-                alignItems: m.role === "user" ? "flex-end" : "flex-start",
-                animation: "fade-in-up 0.3s ease",
-              }}
-            >
+            <div key={i} style={{ display: "flex", flexDirection: "column", alignItems: m.role === "user" ? "flex-end" : "flex-start", animation: "fade-in-up 0.3s ease" }}>
               {m.role === "ai" && (
                 <div style={{ display: "flex", alignItems: "flex-end", gap: 10, maxWidth: "80%" }}>
                   <AIAvatar />
                   <div>
-                    <div style={{ fontSize: 10, color: C.secondary, letterSpacing: 1, marginBottom: 5, fontWeight: 700, textTransform: "uppercase" }}>
-                      Companio AI · NCERT Grounded
-                    </div>
-                    <div style={{
-                      ...glass({ padding: "12px 16px" }),
-                      fontSize: 13, lineHeight: 1.7, color: C.textPrimary,
-                      whiteSpace: "pre-wrap", borderBottomLeftRadius: 3,
-                    }}>
+                    <div style={{ fontSize: 10, color: C.secondary, letterSpacing: 1, marginBottom: 5, fontWeight: 700, textTransform: "uppercase" }}>Companio AI · NCERT Grounded</div>
+                    <div style={{ ...glass({ padding: "12px 16px" }), fontSize: 13, lineHeight: 1.7, color: C.textPrimary, whiteSpace: "pre-wrap", borderBottomLeftRadius: 3 }}>
                       {m.text}
                     </div>
                   </div>
@@ -239,12 +252,7 @@ export default function TutorChat() {
 
               {m.role === "user" && (
                 <div style={{ maxWidth: "72%" }}>
-                  <div style={{
-                    background: `linear-gradient(135deg,${C.primary},${C.primaryDim})`,
-                    padding: "12px 16px", borderRadius: 14, borderBottomRightRadius: 3,
-                    fontSize: 13, lineHeight: 1.6, color: "#fff", whiteSpace: "pre-wrap",
-                    boxShadow: `0 4px 16px ${C.primary}33`,
-                  }}>
+                  <div style={{ background: `linear-gradient(135deg,${C.primary},${C.primaryDim})`, padding: "12px 16px", borderRadius: 14, borderBottomRightRadius: 3, fontSize: 13, lineHeight: 1.6, color: "#fff", whiteSpace: "pre-wrap", boxShadow: `0 4px 16px ${C.primary}33` }}>
                     {m.text}
                   </div>
                 </div>
@@ -257,13 +265,8 @@ export default function TutorChat() {
             <div style={{ display: "flex", alignItems: "flex-end", gap: 10, animation: "fade-in-up 0.3s ease" }}>
               <AIAvatar />
               <div>
-                <div style={{ fontSize: 10, color: C.secondary, letterSpacing: 1, marginBottom: 5, fontWeight: 700, textTransform: "uppercase" }}>
-                  Companio AI
-                </div>
-                <div style={{
-                  ...glass({ padding: "12px 18px" }),
-                  borderBottomLeftRadius: 3, display: "flex", alignItems: "center", gap: 8,
-                }}>
+                <div style={{ fontSize: 10, color: C.secondary, letterSpacing: 1, marginBottom: 5, fontWeight: 700, textTransform: "uppercase" }}>Companio AI</div>
+                <div style={{ ...glass({ padding: "12px 18px" }), borderBottomLeftRadius: 3, display: "flex", alignItems: "center", gap: 8 }}>
                   <TypingDots />
                   <span style={{ fontSize: 11, color: C.textMuted }}>Searching NCERT sources…</span>
                 </div>
@@ -273,15 +276,15 @@ export default function TutorChat() {
         </div>
 
         {/* ── Suggested questions row ─────────────────────────── */}
-        <div style={{
-          padding: "8px 28px", flexShrink: 0,
-          display: "flex", gap: 8, overflowX: "auto",
-        }}>
-          {SUGGESTIONS.map((s, i) => (
+        <div style={{ padding: "8px 28px", flexShrink: 0, display: "flex", gap: 8, overflowX: "auto" }}>
+          {recentDoubts.length > 0 && (
+            <div style={{ display: "flex", alignItems: "center", fontSize: 10, color: C.primary, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1, paddingRight: 8, borderRight: `1px solid ${C.outline}33` }}>
+              Recent Doubts
+            </div>
+          )}
+          {activeSuggestions.map((s, i) => (
             <button
-              key={i}
-              className="suggest-chip"
-              onClick={() => send(s)}
+              key={i} className="suggest-chip" onClick={() => send(s)}
               style={{
                 ...glass({ padding: "7px 14px", borderRadius: 20 }),
                 fontSize: 12, color: C.textMuted, cursor: "pointer", border: `1px solid ${C.outline}44`,
@@ -294,20 +297,11 @@ export default function TutorChat() {
         </div>
 
         {/* ── Input area ─────────────────────────────────────── */}
-        <div style={{
-          ...glass({ borderRadius: 0, padding: "12px 28px 20px" }),
-          borderTop: `1px solid ${C.outline}22`, flexShrink: 0,
-        }}>
-          <div style={{
-            display: "flex", gap: 10, alignItems: "center",
-            background: C.surfaceTop, borderRadius: 14, padding: "6px 8px 6px 16px",
-          }}>
+        <div style={{ ...glass({ borderRadius: 0, padding: "12px 28px 20px" }), borderTop: `1px solid ${C.outline}22`, flexShrink: 0 }}>
+          <div style={{ display: "flex", gap: 10, alignItems: "center", background: C.surfaceTop, borderRadius: 14, padding: "6px 8px 6px 16px" }}>
             <input
               ref={inputRef}
-              style={{
-                flex: 1, background: "transparent", border: "none", outline: "none",
-                color: C.textPrimary, fontSize: 13, padding: "8px 0",
-              }}
+              style={{ flex: 1, background: "transparent", border: "none", outline: "none", color: C.textPrimary, fontSize: 13, padding: "8px 0" }}
               placeholder="Ask anything — e.g. 'Explain thermodynamics laws'"
               value={input}
               onChange={e => setInput(e.target.value)}
@@ -316,8 +310,7 @@ export default function TutorChat() {
 
             {/* Mic icon */}
             <button
-              onClick={handleVoice}
-              title="Voice input"
+              onClick={handleVoice} title="Voice input"
               style={{
                 width: 38, height: 38, borderRadius: 10, border: "none", cursor: "pointer",
                 background: voiceActive ? `${C.error}25` : C.surfaceTop,
@@ -326,28 +319,18 @@ export default function TutorChat() {
                 fontSize: 17, flexShrink: 0, transition: "all 0.2s",
                 animation: voiceActive ? "pulse-mic 1s infinite" : "none",
               }}
-            >
-              🎙️
-            </button>
+            >🎙️</button>
 
             {/* Send button */}
             <button
-              className="send-btn"
-              onClick={() => send()}
-              disabled={!input.trim() && !loading}
+              className="send-btn" onClick={() => send()} disabled={!input.trim() && !loading}
               style={{
-                background: input.trim()
-                  ? `linear-gradient(135deg,${C.primary},${C.primaryDim})`
-                  : C.surface,
-                color: input.trim() ? "#fff" : C.textMuted,
-                border: "none", borderRadius: 10, padding: "10px 18px",
+                background: input.trim() ? `linear-gradient(135deg,${C.primary},${C.primaryDim})` : C.surface,
+                color: input.trim() ? "#fff" : C.textMuted, border: "none", borderRadius: 10, padding: "10px 18px",
                 fontSize: 13, fontWeight: 700, cursor: input.trim() ? "pointer" : "default",
-                transition: "all 0.2s", flexShrink: 0,
-                boxShadow: input.trim() ? `0 4px 16px ${C.primary}44` : "none",
+                transition: "all 0.2s", flexShrink: 0, boxShadow: input.trim() ? `0 4px 16px ${C.primary}44` : "none",
               }}
-            >
-              Send ↑
-            </button>
+            >Send ↑</button>
           </div>
           <div style={{ fontSize: 10, color: C.textMuted, marginTop: 8, textAlign: "center" }}>
             Answers grounded in NCERT + standard textbooks · Press Enter to send

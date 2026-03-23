@@ -1,14 +1,14 @@
-import { useState } from "react";
+import React, { useState } from "react";
 import Dashboard from "./pages/Dashboard";
 import Practice from "./pages/Practice";
 import TutorChat from "./pages/TutorChat";
 import Revisions from "./pages/Revisions";
 import MicroTimeMode from "./components/microtime/MicroTimeMode";
 import VoiceHindiTutor from "./components/voice/VoiceHindiTutor";
-import Onboarding from "./pages/Onboarding";
 import AuthPage from "./pages/AuthPage";
 import useAppStore from "./store/useAppStore";
 import { supabase } from "./lib/supabaseClient";
+import { useRealtimeStore } from "./hooks/useRealtimeStore";
 
 const NAV = [
   { id: "dashboard",  label: "Dashboard",     icon: "◈" },
@@ -27,20 +27,26 @@ export default function App() {
   const examType = useAppStore(s => s.examType) || "JEE";
   const setOnboarded = useAppStore(s => s.setOnboarded);
 
+  // Realtime Sync
+  const initRealtime = useRealtimeStore(s => s.initRealtime);
+  const cleanupRealtime = useRealtimeStore(s => s.cleanup);
+
+  // We should only use useEffect so we need to add it to imports
+  React.useEffect(() => {
+    if (user?.id) {
+      initRealtime(user.id);
+    }
+    return () => cleanupRealtime();
+  }, [user?.id, initRealtime, cleanupRealtime]);
+
   // Gate 1: Must be authenticated
   if (!session) {
     return <AuthPage />;
   }
 
-  // Gate 2: Must complete onboarding
-  if (!isOnboarded) {
-    return <Onboarding onComplete={() => setOnboarded(true)} />;
-  }
-
   const handleLogout = async () => {
     await supabase.auth.signOut();
     useAppStore.getState().clearAuth();
-    useAppStore.getState().setOnboarded(false);
   };
 
   return (

@@ -1,6 +1,6 @@
-import { useState, useEffect, useMemo } from "react";
-import { getDueCards, getAllCards, createCard, deleteCard, clearAllData, reviewCard, getSrsStats } from "../lib/api";
-import useAppStore from "../store/useAppStore";
+import React, { useState, useEffect, useMemo } from "react";
+import { createCard, deleteCard, clearAllData, reviewCard } from "../lib/api";
+import { useRealtimeStore } from "../hooks/useRealtimeStore";
 
 /* ── Design tokens ──────────────────────────────────────────────── */
 const C = {
@@ -36,17 +36,6 @@ const SCORES = [
   { val: 4, label: "Easy",    color: "#4a9eff",   desc: "Hesitation" },
   { val: 5, label: "Perfect", color: C.secondary, desc: "Instant" },
 ];
-
-/* ── Skeleton shimmer ──────────────────────────────────────────── */
-function Sk({ w = "100%", h = 18, r = 6 }) {
-  return (
-    <div style={{
-      width: w, height: h, borderRadius: r, flexShrink: 0,
-      background: `linear-gradient(90deg,${C.surface} 25%,${C.surfaceHi} 50%,${C.surface} 75%)`,
-      backgroundSize: "200% 100%", animation: "nebula-shimmer 1.6s infinite",
-    }} />
-  );
-}
 
 /* ── Stat gradient card ─────────────────────────────────────────── */
 function StatCard({ icon, label, value, sub, glow }) {
@@ -106,14 +95,15 @@ function UpcomingList({ cards, onStartReview }) {
     [...cards].sort((a, b) => new Date(a.due_date) - new Date(b.due_date)).slice(0, 6),
     [cards]
   );
+  const dueCount = cards.filter(c => new Date(c.due_date) <= new Date()).length;
 
   return (
     <div style={{ ...glass({ padding: "18px 20px", marginBottom: 16 }) }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
         <div style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 1.4, fontWeight: 700 }}>⏰ Upcoming Reviews</div>
-        {cards.filter(c => new Date(c.due_date) <= new Date()).length > 0 && (
+        {dueCount > 0 && (
           <span style={{ fontSize: 10, fontWeight: 700, color: C.error, background: `${C.error}18`, padding: "3px 10px", borderRadius: 20 }}>
-            {cards.filter(c => new Date(c.due_date) <= new Date()).length} Due
+            {dueCount} Due
           </span>
         )}
       </div>
@@ -151,20 +141,13 @@ function UpcomingList({ cards, onStartReview }) {
 
 /* ══════════════════════════════════════════════════════════════════ */
 export default function Revisions() {
-  const user   = useAppStore(s => s.user);
+  const { data: storeData } = useRealtimeStore();
+  const user = storeData.users;
   const userId = user?.id;
 
   const [tab, setTab] = useState("review");
 
-  // Review state
-  const [dueCards,      setDueCards]      = useState([]);
-  const [idx,           setIdx]           = useState(0);
-  const [flipped,       setFlipped]       = useState(false);
-  const [reviewLoading, setReviewLoading] = useState(true);
-
   // Manage state
-  const [allCards,      setAllCards]      = useState([]);
-  const [manageLoading, setManageLoading] = useState(false);
   const [showForm,      setShowForm]      = useState(false);
   const [formSubject,   setFormSubject]   = useState("Physics");
   const [formTopic,     setFormTopic]     = useState("");
@@ -173,48 +156,40 @@ export default function Revisions() {
   const [saving,        setSaving]        = useState(false);
   const [confirmClear,  setConfirmClear]  = useState(false);
 
-  // Stats
-  const [srsStats, setSrsStats] = useState({ avg_retention: 78, streak: 0, total: 0 });
+  // Parse realtime arrays
+  const allCards = useMemo(() => (storeData.cards || []), [storeData.cards]);
+  // Due cards array
+  const dueCardsList = useMemo(() => allCards.filter(c => new Date(c.due_date) <= new Date()), [allCards]);
+  
+  // We manage idx in state. When realtime dueCardsList shrinks, idx might overflow.
+  const [idx, setIdx] = useState(0);
+  const [flipped, setFlipped] = useState(false);
 
-  const loadDueCards = async () => {
-    setReviewLoading(true);
-    try {
-      const res = await getDueCards(userId);
-      setDueCards(res.data?.due_cards || []);
-    } catch { setDueCards([]); }
-    setIdx(0); setFlipped(false);
-    setReviewLoading(false);
-  };
+  // If dueCardsList shrinks and idx is out of bounds, snap it
+  useEffect(() => {
+    if (idx > dueCardsList.length && dueCardsList.length > 0) {
+      setIdx(dueCardsList.length - 1);
+    }
+  }, [dueCardsList, idx]);
 
-  const loadAllCards = async () => {
-    setManageLoading(true);
-    try {
-      const res = await getAllCards(userId);
-      setAllCards(res.data?.cards || []);
-    } catch { setAllCards([]); }
-    setManageLoading(false);
-  };
+  // Derive stats
+  const memHealth = useMemo(() => {
+    if (allCards.length === 0) return 0;
+    // rough approximation: use average ease_factor vs starting value (2.5) => 2.5 is ~75%
+    const totalEF = allCards.reduce((acc, c) => acc + (c.ease_factor || 2.5), 0);
+    const avgEF = totalEF / allCards.length;
+    return Math.min(100, Math.max(0, Math.round((avgEF / 2.5) * 75)));
+  }, [allCards]);
 
-  const loadStats = async () => {
-    try {
-      const res = await getSrsStats(userId);
-      if (res.data) setSrsStats({
-        avg_retention: res.data.avg_score ? Math.round(res.data.avg_score * 20) : 78,
-        streak:        res.data.streak ?? 0,
-        total:         res.data.total_cards ?? 0,
-      });
-    } catch { /* keep defaults */ }
-  };
-
-  useEffect(() => { loadDueCards(); loadAllCards(); loadStats(); }, []);
+  // Determine current card based on idx safely
+  const card = dueCardsList[idx];
+  const progress = dueCardsList.length > 0 ? Math.round((idx / dueCardsList.length) * 100) : 0;
 
   // ── Review handlers ───────────────────────────────────────────────
-  const card     = dueCards[idx];
-  const progress = dueCards.length > 0 ? Math.round((idx / dueCards.length) * 100) : 0;
-
   const handleScore = async (quality) => {
     try { await reviewCard(userId, card.id, quality); } catch {}
     setFlipped(false);
+    // Move to next card in array (optimistic)
     setIdx(i => i + 1);
   };
 
@@ -235,22 +210,18 @@ export default function Revisions() {
       await createCard(userId, formSubject, formTopic, formFront, formBack);
       setFormTopic(""); setFormFront(""); setFormBack("");
       setShowForm(false);
-      loadAllCards(); loadDueCards();
     } catch (e) { console.error(e); }
     setSaving(false);
   };
 
   const handleDelete = async (cardId) => {
-    try { await deleteCard(cardId); setAllCards(p => p.filter(c => c.id !== cardId)); loadDueCards(); }
-    catch (e) { console.error(e); }
+    try { await deleteCard(cardId); } catch (e) { console.error(e); }
   };
 
   const handleClearAll = async () => {
-    try { await clearAllData(userId); setAllCards([]); setDueCards([]); setIdx(0); setConfirmClear(false); }
+    try { await clearAllData(userId); setIdx(0); setConfirmClear(false); }
     catch (e) { console.error(e); }
   };
-
-  const memHealth = srsStats.avg_retention || 78;
 
   return (
     <>
@@ -259,9 +230,11 @@ export default function Revisions() {
         @keyframes nebula-shimmer { 0%{background-position:200% 0} 100%{background-position:-200% 0} }
         @keyframes fade-in { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:none} }
         @keyframes flip-reveal { from{opacity:0;transform:scale(0.97)} to{opacity:1;transform:scale(1)} }
+        @keyframes pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
         .score-btn:hover { transform: scale(1.04); }
         .cta-btn:hover { filter: brightness(1.1); transform: scale(1.02); }
         .card-row:hover { background: ${C.surfaceHi} !important; }
+        .live-badge { display: inline-flex; alignItems: center; gap: 6px; font-size: 10px; font-weight: 700; color: ${C.secondary}; text-transform: uppercase; letter-spacing: 1px; padding: 4px 10px; background: ${C.secondary}15; border-radius: 12px; border: 1px solid ${C.secondary}33; }
         ::-webkit-scrollbar { width: 4px; } ::-webkit-scrollbar-thumb { background: ${C.outline}66; border-radius: 2px; }
       `}</style>
 
@@ -273,25 +246,22 @@ export default function Revisions() {
             <h1 style={{ fontSize: 24, fontWeight: 800, letterSpacing: -0.5, fontFamily: "Manrope,sans-serif", margin: 0 }}>
               🧠 Spaced Repetition
             </h1>
-            <p style={{ color: C.textMuted, fontSize: 12, margin: "5px 0 0" }}>SM-2 algorithm — forgetting curve based revision scheduling</p>
+            <p style={{ color: C.textMuted, fontSize: 12, margin: "5px 0 0", display: "flex", alignItems: "center", gap: 10 }}>
+              Live syncing • SM-2 algorithm schedule tracking
+              <span className="live-badge"><span style={{width:6, height:6, borderRadius:"50%", background:C.secondary, animation: "pulse-dot 1.5s infinite"}}/> Live Due Queue</span>
+            </p>
           </div>
-          {srsStats.streak > 0 && (
-            <div style={{ ...glass({ padding: "8px 16px" }), display: "flex", alignItems: "center", gap: 8 }}>
-              <span style={{ fontSize: 16 }}>🔥</span>
-              <span style={{ fontSize: 12, fontWeight: 700, color: C.tertiary }}>{srsStats.streak} Day Streak</span>
-            </div>
-          )}
         </div>
 
         {/* ── Tabs ────────────────────────────────────────────── */}
         <div style={{ display: "flex", gap: 3, background: C.surfaceTop, borderRadius: 10, padding: 4, width: "fit-content", marginBottom: 24 }}>
           {[
-            { key: "review", label: "📖 Review Cards", count: dueCards.length },
+            { key: "review", label: "📖 Review Cards", count: dueCardsList.length },
             { key: "manage", label: "⚙️ Manage Cards", count: allCards.length },
           ].map(t => (
             <button
               key={t.key}
-              onClick={() => setTab(t.key)}
+              onClick={() => { setTab(t.key); if (t.key === "review") setIdx(0); }}
               style={{
                 padding: "9px 18px", borderRadius: 8, border: "none", cursor: "pointer",
                 fontSize: 13, fontWeight: 600, transition: "all 0.2s",
@@ -302,11 +272,7 @@ export default function Revisions() {
               }}
             >
               {t.label}
-              <span style={{
-                fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 10,
-                background: tab === t.key ? "rgba(255,255,255,.2)" : C.surfaceTop,
-                color: tab === t.key ? "#fff" : C.textMuted,
-              }}>{t.count}</span>
+              <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 10, background: tab === t.key ? "rgba(255,255,255,.2)" : C.surfaceTop, color: tab === t.key ? "#fff" : C.textMuted }}>{t.count}</span>
             </button>
           ))}
         </div>
@@ -314,179 +280,131 @@ export default function Revisions() {
         {/* ══════════════ REVIEW TAB ══════════════ */}
         {tab === "review" && (
           <div style={{ animation: "fade-in 0.3s ease" }}>
-            {reviewLoading ? (
-              <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-                <div style={{ display: "flex", gap: 14 }}><Sk w="33%" h={90} r={14} /><Sk w="33%" h={90} r={14} /><Sk w="33%" h={90} r={14} /></div>
-                <Sk h={70} r={14} />
-                <Sk h={52} r={12} />
-                <Sk h={220} r={14} />
+            {/* Stat cards */}
+            <div style={{ display: "flex", gap: 14, marginBottom: 16 }}>
+              <StatCard icon="📚" label="Cards Due"     value={dueCardsList.length}        sub={dueCardsList.length > 0 ? "Needs review today" : "All caught up!"}  glow={C.error}     />
+              <StatCard icon="🧠" label="Avg Retention" value={`${memHealth}%`}         sub="Memory health score"                                           glow={C.secondary} />
+              <StatCard icon="⏰" label="Next Review"   value={nextDue}                 sub="Upcoming scheduled"                                            glow={C.tertiary}  />
+            </div>
+
+            {/* Memory health */}
+            <MemoryHealthBar pct={memHealth} />
+
+            {/* Quick review CTA */}
+            {dueCardsList.length > 0 && idx < dueCardsList.length && (
+              <button
+                className="cta-btn"
+                onClick={() => { setIdx(0); setFlipped(false); }}
+                style={{
+                  width: "100%", padding: "14px", marginBottom: 16, border: "none", borderRadius: 12,
+                  background: `linear-gradient(135deg,${C.primary},${C.primaryDim})`, color: "#fff", fontSize: 14, fontWeight: 800, cursor: "pointer", letterSpacing: -0.3, fontFamily: "Manrope,sans-serif", boxShadow: `0 6px 24px ${C.primary}44`, transition: "all 0.2s",
+                }}
+              >
+                ⚡ Start Quick Review ({dueCardsList.length} cards)
+              </button>
+            )}
+
+            {/* Upcoming reviews */}
+            <UpcomingList cards={allCards} onStartReview={() => setTab("review")} />
+
+            {/* ── Active Review Session ─────────────────── */}
+            {dueCardsList.length === 0 ? (
+              /* Empty state */
+              <div style={{ ...glass({ padding: "56px 40px" }), textAlign: "center", animation: "fade-in 0.4s ease" }}>
+                <div style={{ fontSize: 54, marginBottom: 16 }}>✅</div>
+                <h3 style={{ fontSize: 20, fontWeight: 800, fontFamily: "Manrope,sans-serif", margin: "0 0 8px", color: C.secondary }}>
+                  {allCards.length === 0 ? "No Flashcards Yet" : "All Caught Up!"}
+                </h3>
+                <p style={{ fontSize: 13, color: C.textMuted, maxWidth: 360, margin: "0 auto 20px", lineHeight: 1.7 }}>
+                  {allCards.length === 0 ? "You haven't created any flashcards. Go to Manage Cards to get started!" : `All reviews done! Your next session is ${nextDue}. SM-2 intervals have been updated.`}
+                </p>
+                {allCards.length === 0 ? (
+                  <button className="cta-btn" onClick={() => setTab("manage")} style={{ background: `linear-gradient(135deg,${C.primary},${C.primaryDim})`, color: "#fff", border: "none", borderRadius: 10, padding: "11px 24px", fontSize: 13, fontWeight: 700, cursor: "pointer", transition: "all 0.2s" }}>➕ Create Your First Card</button>
+                ) : (
+                  <div style={{ ...glass({ padding: "14px 20px", display: "inline-flex", alignItems: "center", gap: 10 }) }}>
+                    <span style={{ fontSize: 22 }}>⏰</span>
+                    <div style={{ textAlign: "left" }}>
+                      <div style={{ fontSize: 12, color: C.textMuted }}>Next Review</div>
+                      <div style={{ fontSize: 16, fontWeight: 800, color: C.tertiary, fontFamily: "Manrope,sans-serif" }}>{nextDue}</div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : idx >= dueCardsList.length ? (
+              /* All reviewed */
+              <div style={{ ...glass({ padding: "52px 40px" }), textAlign: "center", border: `1px solid ${C.secondary}33`, animation: "fade-in 0.4s ease" }}>
+                <div style={{ fontSize: 52, marginBottom: 12 }}>🎉</div>
+                <h2 style={{ fontSize: 22, fontWeight: 800, color: C.secondary, fontFamily: "Manrope,sans-serif", margin: "0 0 8px" }}>All Cards Reviewed!</h2>
+                <p style={{ fontSize: 13, color: C.textMuted, maxWidth: 340, margin: "0 auto 24px", lineHeight: 1.7 }}>
+                  Great session! SM-2 intervals have been updated based on your recall ratings.
+                </p>
+                <button className="cta-btn" onClick={() => { setIdx(0); setFlipped(false); }} style={{ background: `linear-gradient(135deg,${C.primary},${C.primaryDim})`, color: "#fff", border: "none", borderRadius: 10, padding: "11px 24px", fontSize: 13, fontWeight: 700, cursor: "pointer", transition: "all 0.2s" }}>
+                  🔄 Restart Session
+                </button>
               </div>
             ) : (
-              <>
-                {/* Stat cards */}
-                <div style={{ display: "flex", gap: 14, marginBottom: 16 }}>
-                  <StatCard icon="📚" label="Cards Due"     value={dueCards.length}        sub={dueCards.length > 0 ? "Needs review today" : "All caught up!"}  glow={C.error}     />
-                  <StatCard icon="🧠" label="Avg Retention" value={`${memHealth}%`}         sub="Memory health score"                                           glow={C.secondary} />
-                  <StatCard icon="⏰" label="Next Review"   value={nextDue}                 sub="Upcoming scheduled"                                            glow={C.tertiary}  />
+              /* Active session */
+              <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                {/* Progress bar */}
+                <div style={{ ...glass({ padding: "14px 18px" }) }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: C.primary, background: `${C.primary}18`, padding: "3px 10px", borderRadius: 6 }}>Card {idx + 1} of {dueCardsList.length}</span>
+                    <span style={{ fontSize: 11, color: C.textMuted, fontFamily: "monospace" }}>{dueCardsList.length - idx} remaining · {progress}%</span>
+                  </div>
+                  <div style={{ height: 7, background: C.surfaceTop, borderRadius: 4, overflow: "hidden" }}>
+                    <div style={{ height: "100%", width: `${progress}%`, borderRadius: 4, transition: "width 0.5s ease", background: `linear-gradient(90deg,${C.primaryDim},${C.primary},${C.secondary})`, boxShadow: `0 0 10px ${C.primary}66` }} />
+                  </div>
                 </div>
 
-                {/* Memory health */}
-                <MemoryHealthBar pct={memHealth} />
-
-                {/* Quick review CTA */}
-                {dueCards.length > 0 && idx < dueCards.length && (
-                  <button
-                    className="cta-btn"
-                    onClick={() => { setIdx(0); setFlipped(false); }}
+                {/* Flip card */}
+                {card && (
+                  <div
+                    onClick={() => setFlipped(p => !p)}
                     style={{
-                      width: "100%", padding: "14px", marginBottom: 16, border: "none", borderRadius: 12,
-                      background: `linear-gradient(135deg,${C.primary},${C.primaryDim})`,
-                      color: "#fff", fontSize: 14, fontWeight: 800, cursor: "pointer",
-                      letterSpacing: -0.3, fontFamily: "Manrope,sans-serif",
-                      boxShadow: `0 6px 24px ${C.primary}44`, transition: "all 0.2s",
+                      ...glass({ padding: "36px 32px", minHeight: 200, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", cursor: "pointer", textAlign: "center", transition: "all 0.3s", borderRadius: 16 }),
+                      border: flipped ? `1px solid ${C.primary}44` : `1px solid ${C.outline}33`,
+                      boxShadow: flipped ? `0 0 32px ${C.primary}18` : "none",
+                      background: flipped ? "linear-gradient(135deg,rgba(171,163,255,.06),rgba(109,95,239,.04))" : "rgba(15,25,46,0.85)",
                     }}
                   >
-                    ⚡ Start Quick Review ({dueCards.length} cards)
-                  </button>
-                )}
+                    <div style={{ fontSize: 10, color: C.textMuted, textTransform: "uppercase", letterSpacing: 1.4, marginBottom: 16, fontWeight: 700 }}>
+                      {flipped ? "Answer — tap to flip back" : "Question — tap to reveal answer"}
+                    </div>
 
-                {/* Upcoming reviews */}
-                <UpcomingList cards={allCards} onStartReview={() => setTab("review")} />
-
-                {/* ── Active Review Session ─────────────────── */}
-                {dueCards.length === 0 ? (
-                  /* Empty state */
-                  <div style={{ ...glass({ padding: "56px 40px" }), textAlign: "center", animation: "fade-in 0.4s ease" }}>
-                    <div style={{ fontSize: 54, marginBottom: 16 }}>✅</div>
-                    <h3 style={{ fontSize: 20, fontWeight: 800, fontFamily: "Manrope,sans-serif", margin: "0 0 8px", color: C.secondary }}>
-                      {allCards.length === 0 ? "No Flashcards Yet" : "All Caught Up!"}
-                    </h3>
-                    <p style={{ fontSize: 13, color: C.textMuted, maxWidth: 360, margin: "0 auto 20px", lineHeight: 1.7 }}>
-                      {allCards.length === 0
-                        ? "You haven't created any flashcards. Go to Manage Cards to get started!"
-                        : `All reviews done! Your next session is ${nextDue}. SM-2 intervals have been updated.`}
-                    </p>
-                    {allCards.length === 0 ? (
-                      <button
-                        className="cta-btn"
-                        onClick={() => setTab("manage")}
-                        style={{ background: `linear-gradient(135deg,${C.primary},${C.primaryDim})`, color: "#fff", border: "none", borderRadius: 10, padding: "11px 24px", fontSize: 13, fontWeight: 700, cursor: "pointer", transition: "all 0.2s" }}
-                      >
-                        ➕ Create Your First Card
-                      </button>
-                    ) : (
-                      <div style={{ ...glass({ padding: "14px 20px", display: "inline-flex", alignItems: "center", gap: 10 }) }}>
-                        <span style={{ fontSize: 22 }}>⏰</span>
-                        <div style={{ textAlign: "left" }}>
-                          <div style={{ fontSize: 12, color: C.textMuted }}>Next Review</div>
-                          <div style={{ fontSize: 16, fontWeight: 800, color: C.tertiary, fontFamily: "Manrope,sans-serif" }}>{nextDue}</div>
+                    {!flipped ? (
+                      <>
+                        <div style={{ fontSize: 17, fontWeight: 700, lineHeight: 1.6, color: C.textPrimary, marginBottom: 14 }}>{card.front}</div>
+                        <div style={{ display: "flex", gap: 8 }}>
+                          <span style={{ fontSize: 11, fontWeight: 600, padding: "3px 10px", borderRadius: 6, background: `${C.primary}18`, color: C.primary }}>{card.subject}</span>
+                          <span style={{ fontSize: 11, padding: "3px 10px", borderRadius: 6, background: C.surfaceTop, color: C.textMuted }}>{card.topic}</span>
                         </div>
+                      </>
+                    ) : (
+                      <div style={{ animation: "flip-reveal 0.25s ease" }}>
+                        <div style={{ fontSize: 16, fontWeight: 600, color: C.primary, lineHeight: 1.6, marginBottom: 6 }}>{card.back}</div>
+                        <div style={{ fontSize: 11, color: C.textMuted }}>Rate your recall below ↓</div>
                       </div>
                     )}
                   </div>
-                ) : idx >= dueCards.length ? (
-                  /* All reviewed */
-                  <div style={{ ...glass({ padding: "52px 40px" }), textAlign: "center", border: `1px solid ${C.secondary}33`, animation: "fade-in 0.4s ease" }}>
-                    <div style={{ fontSize: 52, marginBottom: 12 }}>🎉</div>
-                    <h2 style={{ fontSize: 22, fontWeight: 800, color: C.secondary, fontFamily: "Manrope,sans-serif", margin: "0 0 8px" }}>All Cards Reviewed!</h2>
-                    <p style={{ fontSize: 13, color: C.textMuted, maxWidth: 340, margin: "0 auto 24px", lineHeight: 1.7 }}>
-                      Great session! SM-2 intervals have been updated based on your recall ratings.
-                    </p>
-                    <button
-                      className="cta-btn"
-                      onClick={() => { setIdx(0); setFlipped(false); loadDueCards(); }}
-                      style={{ background: `linear-gradient(135deg,${C.primary},${C.primaryDim})`, color: "#fff", border: "none", borderRadius: 10, padding: "11px 24px", fontSize: 13, fontWeight: 700, cursor: "pointer", transition: "all 0.2s" }}
-                    >
-                      🔄 Restart Session
-                    </button>
+                )}
+
+                {/* Score buttons */}
+                {flipped ? (
+                  <div style={{ animation: "fade-in 0.25s ease" }}>
+                    <div style={{ fontSize: 11, color: C.textMuted, textAlign: "center", marginBottom: 10 }}>How well did you remember?</div>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 8 }}>
+                      {SCORES.map(sc => (
+                        <button key={sc.val} className="score-btn" onClick={() => handleScore(sc.val)} style={{ padding: "12px 6px", borderRadius: 10, cursor: "pointer", textAlign: "center", background: `${sc.color}12`, border: `1px solid ${sc.color}33`, transition: "all 0.15s" }}>
+                          <div style={{ fontSize: 13, fontWeight: 800, color: sc.color, fontFamily: "Manrope,sans-serif" }}>{sc.label}</div>
+                          <div style={{ fontSize: 10, color: C.textMuted, marginTop: 3 }}>{sc.desc}</div>
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 ) : (
-                  /* Active session */
-                  <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-                    {/* Progress bar */}
-                    <div style={{ ...glass({ padding: "14px 18px" }) }}>
-                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-                        <span style={{ fontSize: 11, fontWeight: 700, color: C.primary, background: `${C.primary}18`, padding: "3px 10px", borderRadius: 6 }}>
-                          Card {idx + 1} of {dueCards.length}
-                        </span>
-                        <span style={{ fontSize: 11, color: C.textMuted, fontFamily: "monospace" }}>{dueCards.length - idx} remaining · {progress}%</span>
-                      </div>
-                      <div style={{ height: 7, background: C.surfaceTop, borderRadius: 4, overflow: "hidden" }}>
-                        <div style={{
-                          height: "100%", width: `${progress}%`, borderRadius: 4, transition: "width 0.5s ease",
-                          background: `linear-gradient(90deg,${C.primaryDim},${C.primary},${C.secondary})`,
-                          boxShadow: `0 0 10px ${C.primary}66`,
-                        }} />
-                      </div>
-                    </div>
-
-                    {/* Flip card */}
-                    <div
-                      onClick={() => setFlipped(p => !p)}
-                      style={{
-                        ...glass({
-                          padding: "36px 32px", minHeight: 200,
-                          display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-                          cursor: "pointer", textAlign: "center", transition: "all 0.3s",
-                          borderRadius: 16,
-                        }),
-                        border: flipped ? `1px solid ${C.primary}44` : `1px solid ${C.outline}33`,
-                        boxShadow: flipped ? `0 0 32px ${C.primary}18` : "none",
-                        background: flipped
-                          ? "linear-gradient(135deg,rgba(171,163,255,.06),rgba(109,95,239,.04))"
-                          : "rgba(15,25,46,0.85)",
-                      }}
-                    >
-                      <div style={{ fontSize: 10, color: C.textMuted, textTransform: "uppercase", letterSpacing: 1.4, marginBottom: 16, fontWeight: 700 }}>
-                        {flipped ? "Answer — tap to flip back" : "Question — tap to reveal answer"}
-                      </div>
-
-                      {!flipped ? (
-                        <>
-                          <div style={{ fontSize: 17, fontWeight: 700, lineHeight: 1.6, color: C.textPrimary, marginBottom: 14 }}>{card.front}</div>
-                          <div style={{ display: "flex", gap: 8 }}>
-                            <span style={{ fontSize: 11, fontWeight: 600, padding: "3px 10px", borderRadius: 6, background: `${C.primary}18`, color: C.primary }}>{card.subject}</span>
-                            <span style={{ fontSize: 11, padding: "3px 10px", borderRadius: 6, background: C.surfaceTop, color: C.textMuted }}>{card.topic}</span>
-                          </div>
-                        </>
-                      ) : (
-                        <div style={{ animation: "flip-reveal 0.25s ease" }}>
-                          <div style={{ fontSize: 16, fontWeight: 600, color: C.primary, lineHeight: 1.6, marginBottom: 6 }}>{card.back}</div>
-                          <div style={{ fontSize: 11, color: C.textMuted }}>Rate your recall below ↓</div>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Score buttons */}
-                    {flipped ? (
-                      <div style={{ animation: "fade-in 0.25s ease" }}>
-                        <div style={{ fontSize: 11, color: C.textMuted, textAlign: "center", marginBottom: 10 }}>How well did you remember?</div>
-                        <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 8 }}>
-                          {SCORES.map(sc => (
-                            <button
-                              key={sc.val}
-                              className="score-btn"
-                              onClick={() => handleScore(sc.val)}
-                              style={{
-                                padding: "12px 6px", borderRadius: 10, cursor: "pointer", textAlign: "center",
-                                background: `${sc.color}12`, border: `1px solid ${sc.color}33`,
-                                transition: "all 0.15s",
-                              }}
-                            >
-                              <div style={{ fontSize: 13, fontWeight: 800, color: sc.color, fontFamily: "Manrope,sans-serif" }}>{sc.label}</div>
-                              <div style={{ fontSize: 10, color: C.textMuted, marginTop: 3 }}>{sc.desc}</div>
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    ) : (
-                      <div style={{ textAlign: "center", fontSize: 12, color: C.textMuted }}>
-                        👆 Tap the card to reveal the answer
-                      </div>
-                    )}
-                  </div>
+                  <div style={{ textAlign: "center", fontSize: 12, color: C.textMuted }}>👆 Tap the card to reveal the answer</div>
                 )}
-              </>
+              </div>
             )}
           </div>
         )}
@@ -496,25 +414,10 @@ export default function Revisions() {
           <div style={{ animation: "fade-in 0.3s ease" }}>
             {/* Action bar */}
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
-              <div style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 1.4, fontWeight: 700 }}>
-                📚 Your Flashcards ({allCards.length})
-              </div>
+              <div style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 1.4, fontWeight: 700 }}>📚 Your Flashcards ({allCards.length})</div>
               <div style={{ display: "flex", gap: 8 }}>
-                <button
-                  className="cta-btn"
-                  onClick={() => setShowForm(!showForm)}
-                  style={{ background: `linear-gradient(135deg,${C.primary},${C.primaryDim})`, color: "#fff", border: "none", borderRadius: 9, padding: "9px 16px", fontSize: 12, fontWeight: 700, cursor: "pointer", transition: "all 0.2s" }}
-                >
-                  ➕ Add Card
-                </button>
-                {allCards.length > 0 && (
-                  <button
-                    onClick={() => setConfirmClear(true)}
-                    style={{ background: `${C.error}15`, color: C.error, border: `1px solid ${C.error}33`, borderRadius: 9, padding: "9px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}
-                  >
-                    🗑️ Clear All
-                  </button>
-                )}
+                <button className="cta-btn" onClick={() => setShowForm(!showForm)} style={{ background: `linear-gradient(135deg,${C.primary},${C.primaryDim})`, color: "#fff", border: "none", borderRadius: 9, padding: "9px 16px", fontSize: 12, fontWeight: 700, cursor: "pointer", transition: "all 0.2s" }}>➕ Add Card</button>
+                {allCards.length > 0 && <button onClick={() => setConfirmClear(true)} style={{ background: `${C.error}15`, color: C.error, border: `1px solid ${C.error}33`, borderRadius: 9, padding: "9px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>🗑️ Clear All</button>}
               </div>
             </div>
 
@@ -525,16 +428,10 @@ export default function Revisions() {
                   <div style={{ width: 38, height: 38, borderRadius: 10, background: `${C.error}15`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, flexShrink: 0 }}>⚠️</div>
                   <div style={{ flex: 1 }}>
                     <div style={{ fontSize: 13, fontWeight: 700, color: C.error, marginBottom: 6 }}>Delete ALL data permanently?</div>
-                    <p style={{ fontSize: 12, color: C.textMuted, marginBottom: 12, lineHeight: 1.6 }}>
-                      This will remove all flashcards, attempts, study plans and analytics. Cannot be undone.
-                    </p>
+                    <p style={{ fontSize: 12, color: C.textMuted, marginBottom: 12, lineHeight: 1.6 }}>This will remove all flashcards, attempts, study plans and analytics. Cannot be undone.</p>
                     <div style={{ display: "flex", gap: 8 }}>
-                      <button onClick={handleClearAll} style={{ background: C.error, color: "#fff", border: "none", borderRadius: 8, padding: "8px 16px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
-                        Yes, Delete Everything
-                      </button>
-                      <button onClick={() => setConfirmClear(false)} style={{ background: C.surfaceTop, color: C.textMuted, border: "none", borderRadius: 8, padding: "8px 16px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
-                        Cancel
-                      </button>
+                      <button onClick={handleClearAll} style={{ background: C.error, color: "#fff", border: "none", borderRadius: 8, padding: "8px 16px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Yes, Delete Everything</button>
+                      <button onClick={() => setConfirmClear(false)} style={{ background: C.surfaceTop, color: C.textMuted, border: "none", borderRadius: 8, padding: "8px 16px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Cancel</button>
                     </div>
                   </div>
                 </div>
@@ -548,9 +445,7 @@ export default function Revisions() {
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
                   <div>
                     <div style={{ fontSize: 10, color: C.textMuted, marginBottom: 6, textTransform: "uppercase", letterSpacing: 1 }}>Subject</div>
-                    <select value={formSubject} onChange={e => setFormSubject(e.target.value)} style={{ width: "100%", padding: "9px 12px", background: C.surfaceTop, border: "none", borderRadius: 8, color: C.textPrimary, fontSize: 13, outline: "none" }}>
-                      {SUBJECTS.map(s => <option key={s} value={s}>{s}</option>)}
-                    </select>
+                    <select value={formSubject} onChange={e => setFormSubject(e.target.value)} style={{ width: "100%", padding: "9px 12px", background: C.surfaceTop, border: "none", borderRadius: 8, color: C.textPrimary, fontSize: 13, outline: "none" }}>{SUBJECTS.map(s => <option key={s} value={s}>{s}</option>)}</select>
                   </div>
                   <div>
                     <div style={{ fontSize: 10, color: C.textMuted, marginBottom: 6, textTransform: "uppercase", letterSpacing: 1 }}>Topic</div>
@@ -566,25 +461,14 @@ export default function Revisions() {
                   <textarea value={formBack} onChange={e => setFormBack(e.target.value)} rows={2} placeholder="Energy cannot be created or destroyed. ΔU = Q − W" style={{ width: "100%", padding: "9px 12px", background: C.surfaceTop, border: "none", borderRadius: 8, color: C.textPrimary, fontSize: 13, outline: "none", resize: "none", boxSizing: "border-box" }} />
                 </div>
                 <div style={{ display: "flex", gap: 8 }}>
-                  <button
-                    className="cta-btn"
-                    onClick={handleCreate}
-                    disabled={saving || !formTopic || !formFront || !formBack}
-                    style={{ background: `linear-gradient(135deg,${C.primary},${C.primaryDim})`, color: "#fff", border: "none", borderRadius: 9, padding: "10px 20px", fontSize: 13, fontWeight: 700, cursor: "pointer", opacity: saving || !formTopic || !formFront || !formBack ? 0.5 : 1, transition: "all 0.2s" }}
-                  >
-                    {saving ? "Saving…" : "💾 Save Card"}
-                  </button>
+                  <button className="cta-btn" onClick={handleCreate} disabled={saving || !formTopic || !formFront || !formBack} style={{ background: `linear-gradient(135deg,${C.primary},${C.primaryDim})`, color: "#fff", border: "none", borderRadius: 9, padding: "10px 20px", fontSize: 13, fontWeight: 700, cursor: "pointer", opacity: saving || !formTopic || !formFront || !formBack ? 0.5 : 1, transition: "all 0.2s" }}>{saving ? "Saving…" : "💾 Save Card"}</button>
                   <button onClick={() => setShowForm(false)} style={{ background: C.surfaceTop, color: C.textMuted, border: "none", borderRadius: 9, padding: "10px 16px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Cancel</button>
                 </div>
               </div>
             )}
 
             {/* Cards list */}
-            {manageLoading ? (
-              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                {[1,2,3].map(i => <Sk key={i} h={80} r={12} />)}
-              </div>
-            ) : allCards.length === 0 ? (
+            {allCards.length === 0 ? (
               <div style={{ ...glass({ padding: "52px 40px" }), textAlign: "center" }}>
                 <div style={{ fontSize: 44, marginBottom: 14 }}>📝</div>
                 <h3 style={{ fontSize: 18, fontWeight: 700, fontFamily: "Manrope,sans-serif", margin: "0 0 8px" }}>No Flashcards Yet</h3>
@@ -595,15 +479,7 @@ export default function Revisions() {
                 {allCards.map((c, i) => {
                   const isDue = new Date(c.due_date) <= new Date();
                   return (
-                    <div
-                      key={c.id}
-                      className="card-row"
-                      style={{
-                        ...glass({ padding: "14px 18px", borderRadius: 12 }),
-                        display: "flex", alignItems: "flex-start", gap: 14, transition: "background 0.15s",
-                        borderLeft: isDue ? `3px solid ${C.error}` : `3px solid ${C.outline}33`,
-                      }}
-                    >
+                    <div key={c.id} className="card-row" style={{ ...glass({ padding: "14px 18px", borderRadius: 12 }), display: "flex", alignItems: "flex-start", gap: 14, transition: "background 0.15s", borderLeft: isDue ? `3px solid ${C.error}` : `3px solid ${C.outline}33` }}>
                       <div style={{ width: 30, height: 30, borderRadius: 8, background: C.surfaceTop, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: C.textMuted, flexShrink: 0 }}>{i + 1}</div>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 5 }}>
@@ -620,13 +496,7 @@ export default function Revisions() {
                           <span>Due: {c.due_date?.split("T")[0]}</span>
                         </div>
                       </div>
-                      <button
-                        onClick={() => handleDelete(c.id)}
-                        style={{ width: 32, height: 32, borderRadius: 8, border: "none", background: "transparent", cursor: "pointer", color: C.textMuted, fontSize: 14, flexShrink: 0, transition: "all 0.15s" }}
-                        onMouseEnter={e => { e.currentTarget.style.background = `${C.error}20`; e.currentTarget.style.color = C.error; }}
-                        onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = C.textMuted; }}
-                        title="Delete card"
-                      >🗑️</button>
+                      <button onClick={() => handleDelete(c.id)} style={{ width: 32, height: 32, borderRadius: 8, border: "none", background: "transparent", cursor: "pointer", color: C.textMuted, fontSize: 14, flexShrink: 0, transition: "all 0.15s" }} onMouseEnter={e => { e.currentTarget.style.background = `${C.error}20`; e.currentTarget.style.color = C.error; }} onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = C.textMuted; }} title="Delete card">🗑️</button>
                     </div>
                   );
                 })}

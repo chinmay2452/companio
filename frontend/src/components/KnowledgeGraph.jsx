@@ -1,11 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
 import * as d3 from 'd3';
-import { useUser } from '../../store/useAppStore';
-import { useLiveStats } from '../../hooks/useRealtimeSync';
+import { useRealtimeStore } from '../../hooks/useRealtimeStore';
 
 export default function KnowledgeGraph() {
-  const user = useUser();
-  const { stats, loading } = useLiveStats(user?.id);
+  const { data: storeData } = useRealtimeStore();
+  const loading = !storeData || !storeData.weak_topics;
+  const weakTopics = storeData?.weak_topics || [];
   
   const containerRef = useRef(null);
   const svgRef = useRef(null);
@@ -17,9 +17,9 @@ export default function KnowledgeGraph() {
   const linksRef = useRef([]);
 
   useEffect(() => {
-    if (loading || !stats?.weakTopics || stats.weakTopics.length === 0) return;
+    if (loading || weakTopics.length === 0) return;
 
-    const rawData = stats.weakTopics;
+    const rawData = weakTopics;
     const newNodes = [];
     const newLinks = [];
     
@@ -38,12 +38,13 @@ export default function KnowledgeGraph() {
     const colors = { weak: '#ef4444', learning: '#f59e0b', strong: '#22c55e' };
     
     rawData.forEach((topic) => {
-      const acc = parseFloat(topic.accuracy);
+      // "score" corresponds to the accuracy/competency measure in the new schema
+      const acc = parseFloat(topic.score || topic.accuracy || 0);
       let color = colors.strong;
       if (acc < 40) color = colors.weak;
       else if (acc <= 70) color = colors.learning;
       
-      const att = parseInt(topic.attempts_count, 10) || 1;
+      const att = parseInt(topic.attempts_count, 10) || 5; // fallback size
       const radiusScale = d3.scaleLinear().domain([1, 50]).range([8, 28]).clamp(true);
       const r = radiusScale(att);
 
@@ -186,7 +187,7 @@ export default function KnowledgeGraph() {
         if (!d.isSubject) {
           tooltipGroup.transition().duration(200).style("opacity", 1);
           tooltipGroup.select(".tooltip-title").text(d.label);
-          tooltipGroup.select(".tooltip-subtitle").text(`Acc: ${Math.round(d.accuracy)}% | Attempts: ${d.attempts}`);
+          tooltipGroup.select(".tooltip-subtitle").text(`Acc: ${Math.round(d.accuracy)}%`);
           
           const padding = 24;
           const bg = tooltipGroup.select(".tooltip-bg");
@@ -237,7 +238,7 @@ export default function KnowledgeGraph() {
       }
     });
 
-  }, [stats?.weakTopics, loading]);
+  }, [weakTopics, loading]);
 
   useEffect(() => {
     if (!svgRef.current) return;
@@ -262,7 +263,7 @@ export default function KnowledgeGraph() {
       ref={containerRef}
       onClick={() => setHighlightedSubject(null)}
     >
-      {(!stats?.weakTopics || stats.weakTopics.length === 0) && !loading && (
+      {(!weakTopics || weakTopics.length === 0) && !loading && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-0">
           <p className="text-slate-400 font-medium text-lg px-6 text-center">Complete some reviews to see your knowledge map build up.</p>
         </div>

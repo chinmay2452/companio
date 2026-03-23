@@ -112,7 +112,13 @@ export default function VoiceHindiTutor() {
     recognitionRef.current = recognition;
 
     recognition.onstart  = () => { setVoiceState("listening"); setInterim(""); };
-    recognition.onerror  = () => { setVoiceState("idle"); setError("Mic error — please allow microphone access."); };
+    recognition.onerror  = (e) => {
+      setVoiceState("idle");
+      if (e.error !== "no-speech") setError("Mic error — " + e.error);
+    };
+    recognition.onend    = () => {
+      setVoiceState(prev => prev === "listening" ? "idle" : prev);
+    };
 
     recognition.onresult = (e) => {
       let interimTxt = "", finalTxt = "";
