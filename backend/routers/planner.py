@@ -184,14 +184,14 @@ async def get_today_plan(user_id: str) -> dict:
         response = (
             get_supabase()
             .table("daily_plans")
-            .select("plan")
+            .select("plan_json")
             .eq("user_id", user_id)
             .eq("plan_date", today_iso)
             .execute()
         )
         if response.data:
             row = response.data[0]
-            return {"plan": row.get("plan")}
+            return {"plan": row.get("plan_json", [])}
     except Exception as e:
         print(f"Warning: Could not fetch today's plan: {e}")
 

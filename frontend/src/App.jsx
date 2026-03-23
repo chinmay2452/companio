@@ -92,11 +92,6 @@ export default function App() {
 
         {/* User + Logout */}
         <div style={{ padding: "12px 20px", borderTop: "1px solid #1a2840" }}>
-          <div style={{ background: "#131e35", border: "1px solid #1a2840", borderRadius: 8, padding: "10px 14px" }}>
-            <div style={{ fontSize: 10, color: "#4a5a80", textTransform: "uppercase", letterSpacing: 1 }}>Target</div>
-            <div style={{ fontWeight: 700, fontSize: 16, marginTop: 2 }}>{examType} 2026</div>
-            <div style={{ fontSize: 11, color: "#ff6b9d", marginTop: 2 }}>📅 127 days left</div>
-          </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10, padding: "8px 0" }}>
             <div style={{
               width: 28, height: 28, borderRadius: "50%",

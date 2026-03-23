@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect } from "react";
 import { useRealtimeStore } from "../hooks/useRealtimeStore";
 import useAppStore from "../store/useAppStore";
 import { generatePlan } from "../lib/api";
+import { supabase } from "../lib/supabaseClient";
 
 /* ── Design tokens (Companio Nebula) ───────────────────────────── */
 const C = {
@@ -101,12 +102,33 @@ function BarChart({ data, height = 120, maxVal = 100 }) {
 
 /* ─────────── Main Dashboard ─────────────────────────────────────── */
 export default function Dashboard() {
-  const { data: storeData, loading: storeLoading } = useRealtimeStore();
+  const { data: storeData, loading: storeLoading, refreshAll } = useRealtimeStore();
   const authUser = useAppStore(s => s.user);
   const [generatingPlan, setGeneratingPlan] = useState(false);
   const [doneItems, setDoneItems] = useState({});
   const [localPlan, setLocalPlan] = useState(null); // direct API response fallback
   const [showConfig, setShowConfig] = useState(false);
+
+  // Sync doneItems from the source of truth
+  const todayStr = new Date().toISOString().split("T")[0];
+  const todaysPlanRow = storeData?.daily_plans?.find(p => (p.plan_date || p.date) === todayStr);
+  const realtimePlanItems = todaysPlanRow?.plan_json || todaysPlanRow?.plan || [];
+  const planItems = localPlan || realtimePlanItems;
+
+  useEffect(() => {
+    setDoneItems(prev => {
+      // Only initialize if our local state is empty or if the plan size fundamentally changes (new plan)
+      // This prevents realtime updates from overwriting our optimistic local toggles if the async DB falls behind
+      if (Object.keys(prev).length === 0 || planItems.length !== Object.keys(prev).length) {
+        const initialDone = {};
+        planItems.forEach((item, idx) => {
+          if (item.completed) initialDone[idx] = true;
+        });
+        return initialDone;
+      }
+      return prev;
+    });
+  }, [planItems.length]);
 
   // ── Config state ──
   const [cfgHours, setCfgHours] = useState(4);
@@ -140,9 +162,7 @@ export default function Dashboard() {
     const dueCount = storeData.cards.filter(c => new Date(c.next_review || c.due_date || now) <= now).length;
 
     // Plans — try both `plan_date` and `date` column names
-    const todayStr = new Date().toISOString().split("T")[0];
-    const todaysPlanRow = storeData.daily_plans.find(p => (p.plan_date || p.date) === todayStr);
-    const realtimePlanItems = todaysPlanRow?.plan || [];
+    // (Already extracted in the component body above, but kept here for stats)
 
     // Weak topics
     const weakTopics = [...(storeData.weak_topics || [])].sort((a,b) => (a.score || a.accuracy || 0) - (b.score || b.accuracy || 0));
@@ -198,9 +218,7 @@ export default function Dashboard() {
     );
   }
 
-  const { user, dueCount, realtimePlanItems, weakTopics, topWeak, overallAccuracy, subjectData, microToday, totalMicroMin } = stats;
-  // Use local plan (from API response) if available, otherwise fallback to realtime
-  const planItems = localPlan || realtimePlanItems;
+  const { user, dueCount, weakTopics, topWeak, overallAccuracy, subjectData, microToday, totalMicroMin } = stats;
   const hour = new Date().getHours();
   const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
   const doneCount = Object.values(doneItems).filter(Boolean).length;
@@ -218,11 +236,40 @@ export default function Dashboard() {
       const planData = res.data?.plan || [];
       setLocalPlan(planData);
       setShowConfig(false);
+      refreshAll();
     } catch(err) {
       console.error(err);
       alert("Failed to generate plan: " + (err.response?.data?.detail || err.message));
     }
     setGeneratingPlan(false);
+  };
+
+  const handleToggleItem = async (index) => {
+    const currentPlan = todaysPlanRow?.plan_json || todaysPlanRow?.plan || [];
+    
+    setDoneItems(prev => {
+      const nextDone = { ...prev, [index]: !prev[index] };
+
+      // Build the new plan array ensuring ALL truths in nextDone are accurately reflected
+      const newPlan = currentPlan.map((item, i) => ({
+        ...item,
+        completed: !!nextDone[i]
+      }));
+
+      if (localPlan) setLocalPlan(newPlan);
+
+      if (todaysPlanRow && todaysPlanRow.id) {
+        // Fire and forget update
+        supabase
+          .from("daily_plans")
+          .update({ plan_json: newPlan })
+          .eq("id", todaysPlanRow.id)
+          .then(({error}) => { if (error) console.error("Toggle error:", error); })
+          .catch(console.error);
+      }
+
+      return nextDone;
+    });
   };
 
   const inputStyle = { width: "100%", padding: "9px 12px", background: C.surfaceTop, border: "none", borderRadius: 8, color: C.textPrimary, fontSize: 13, outline: "none", boxSizing: "border-box" };
@@ -420,7 +467,7 @@ export default function Dashboard() {
                         <div style={{ position: "relative", zIndex: 1, marginTop: 4 }}>
                           <div style={{ width: 12, height: 12, borderRadius: "50%", background: meta.dot, border: `2px solid ${C.surface}`, boxShadow: `0 0 10px ${meta.dot}88` }} />
                         </div>
-                        <div style={{ flex: 1, cursor: "pointer" }} onClick={() => setDoneItems(p => ({...p, [i]: !p[i]}))}>
+                        <div style={{ flex: 1, cursor: "pointer" }} onClick={() => handleToggleItem(i)}>
                          <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 4 }}>
                            <span style={{ fontSize: 9, fontWeight: 800, color: meta.badge.color, background: meta.badge.bg, padding: "2px 6px", borderRadius: 4 }}>{item.type}</span>
                            {item.priority && (

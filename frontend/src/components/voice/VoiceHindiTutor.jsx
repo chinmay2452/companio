@@ -137,12 +137,14 @@ export default function VoiceHindiTutor() {
     setLastQ(question);
     setVoiceState("thinking");
     const recentHistory = history.slice(-HISTORY_MAX);
+    const mappedHistory = recentHistory.map(m => ({ role: m.role, content: m.text }));
     let answer = "";
     try {
-      const res = await askTutorHindi(question, recentHistory, "General", user?.id, lang);
+      const res = await askTutorHindi(question, mappedHistory, "General", user?.id || "unknown", lang);
       answer = res.data?.answer || res.data?.response || "";
-    } catch {
-      answer = getHindiAnswer(question);
+    } catch (err) {
+      console.error("Hindi Tutor API Error:", err.response?.data || err.message || err);
+      answer = `API Error: ${err.response?.data?.detail?.[0]?.msg || err.response?.data?.detail || err.message}. Please check backend logs.`;
     }
     setLastA(answer);
     setHistory(h => [...h, { role: "user", text: question }, { role: "ai", text: answer }]);

@@ -67,9 +67,11 @@ def save_daily_plan(user_id: str, plan_date: str, plan: list) -> dict:
         data = {
             "user_id": user_id,
             "plan_date": plan_date,
-            "plan": plan
+            "plan_json": plan
         }
-        response = supabase.table("daily_plans").upsert(data, on_conflict="user_id,plan_date").execute()
+        # Delete existing plan to simulate upsert without relying on unique constrains
+        supabase.table("daily_plans").delete().eq("user_id", user_id).eq("plan_date", plan_date).execute()
+        response = supabase.table("daily_plans").insert(data).execute()
         return response.data[0] if response.data else {}
     except Exception as e:
         print(f"Error in save_daily_plan: {e}")

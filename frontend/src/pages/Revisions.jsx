@@ -89,6 +89,62 @@ function MemoryHealthBar({ pct }) {
   );
 }
 
+/* ── Forgetting Curve Visualization ─────────────────────────────── */
+function ForgettingCurve({ memHealth }) {
+  const S = Math.max(1.5, memHealth / 10); 
+  const days = Array.from({ length: 14 }, (_, i) => i);
+  const data = days.map(t => ({ t, R: Math.exp(-t / S) * 100 }));
+  
+  const width = 300;
+  const height = 120;
+  const padding = { top: 20, right: 10, bottom: 20, left: 30 };
+  const innerW = width - padding.left - padding.right;
+  const innerH = height - padding.top - padding.bottom;
+  
+  const points = data.map((d, i) => {
+    const x = padding.left + (i / (days.length - 1)) * innerW;
+    const y = padding.top + innerH - (d.R / 100) * innerH;
+    return `${x},${y}`;
+  }).join(" ");
+
+  return (
+    <div style={{ ...glass({ padding: "18px 20px", marginBottom: 16 }) }}>
+      <div style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 1.4, fontWeight: 700, marginBottom: 14 }}>📉 Forgetting Curve (Ebbinghaus)</div>
+      <div style={{ position: "relative", width: "100%", height, background: `${C.surfaceTop}66`, borderRadius: 8, overflow: "hidden" }}>
+        <svg viewBox={`0 0 ${width} ${height}`} style={{ width: "100%", height: "100%", overflow: "visible" }}>
+          <defs>
+            <linearGradient id="curveGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor={C.secondary} stopOpacity={0.4} />
+              <stop offset="100%" stopColor={C.secondary} stopOpacity={0.0} />
+            </linearGradient>
+          </defs>
+          {/* Grid lines */}
+          {[0, 50, 100].map(pct => {
+            const y = padding.top + innerH - (pct / 100) * innerH;
+            return (
+              <g key={pct}>
+                <line x1={padding.left} y1={y} x2={width - padding.right} y2={y} stroke={C.outline} strokeOpacity={0.3} strokeDasharray="4 4" />
+                <text x={padding.left - 6} y={y + 3} fill={C.textMuted} fontSize={9} textAnchor="end">{pct}%</text>
+              </g>
+            );
+          })}
+          {/* Path */}
+          <polyline points={`${padding.left},${padding.top+innerH} ${points} ${width-padding.right},${padding.top+innerH}`} fill="url(#curveGrad)" />
+          <polyline points={points} fill="none" stroke={C.secondary} strokeWidth={3} strokeLinecap="round" strokeLinejoin="round" style={{ filter: `drop-shadow(0 4px 12px ${C.secondary}66)` }} />
+          {/* X axis labels */}
+          {[0, 7, 13].map(d => {
+            const x = padding.left + (d / (days.length - 1)) * innerW;
+            return <text key={d} x={x} y={padding.top + innerH + 14} fill={C.textMuted} fontSize={9} textAnchor="middle">{d}d</text>;
+          })}
+        </svg>
+      </div>
+      <div style={{ fontSize: 10, color: C.textMuted, marginTop: 12, lineHeight: 1.5 }}>
+        Based on your memory health (<strong style={{color:C.secondary}}>{memHealth}%</strong>), this is how your retention decays over 14 days without review. Spaced repetition flattens this curve!
+      </div>
+    </div>
+  );
+}
+
 /* ── Upcoming reviews list ──────────────────────────────────────── */
 function UpcomingList({ cards, onStartReview }) {
   const sorted = useMemo(() =>
@@ -293,6 +349,9 @@ export default function Revisions() {
 
             {/* Memory health */}
             <MemoryHealthBar pct={memHealth} />
+
+            {/* Forgetting Curve */}
+            <ForgettingCurve memHealth={memHealth} />
 
             {/* Quick review CTA */}
             {dueCardsList.length > 0 && idx < dueCardsList.length && (

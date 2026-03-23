@@ -217,21 +217,7 @@ export default function TutorChat() {
             </div>
           </div>
 
-          {/* Segmented subject control */}
-          <div style={{ display: "flex", background: C.surfaceTop, borderRadius: 10, padding: 3, gap: 2 }}>
-            {SUBJECTS.map(s => (
-              <button
-                key={s} className="subj-btn" onClick={() => setSubject(s)}
-                style={{
-                  flex: 1, padding: "7px 4px", borderRadius: 8, border: "none", cursor: "pointer",
-                  fontSize: 12, fontWeight: 600, transition: "all 0.2s",
-                  background: subject === s ? `linear-gradient(135deg,${C.primary},${C.primaryDim})` : "transparent",
-                  color: subject === s ? "#fff" : C.textMuted,
-                  boxShadow: subject === s ? `0 2px 12px ${C.primary}44` : "none",
-                }}
-              >{s}</button>
-            ))}
-          </div>
+
         </div>
 
         {/* ── Chat message scroll area ────────────────────────── */}

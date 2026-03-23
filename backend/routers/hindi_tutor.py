@@ -16,16 +16,29 @@ from services.ai_service import chat, stream_chat, QUALITY_MODEL
 router = APIRouter()
 
 def _get_system_prompt(language: str) -> str:
-    dialect = "pure Hindi" if language == "hi-IN" else "Hinglish (a mix of English vocabulary and Hindi grammar)"
-    return (
-        f"Aap ek expert JEE/NEET/UPSC tutor hain jo {dialect} mein padhate hain.\n"
-        "Rules:\n"
-        f"- Hamesha apna jawab deeply {dialect} mein likho.\n"
-        "- Detail mein jawab do taki student topic ko deeply samajh sake.\n"
-        "- Har concept ka ek clear example zaroor do.\n"
-        "- Agar koi formula hai, toh use simple shabdon mein tod kar samjhao (break it down).\n"
-        "- Step by step batao for complex concepts."
-    )
+    if language == "hi-IN":
+        return (
+            "Aap ek expert JEE/NEET/UPSC tutor hain.\n"
+            "Rules:\n"
+            "- CRITICAL: ALWAYS write your answer completely in Devanagari script (हिंदी लिपि).\n"
+            "- Do not use English characters for your main explanation.\n"
+            "- Hamesha apna jawab deeply Hindi mein likho.\n"
+            "- Detail mein jawab do taki student topic ko deeply samajh sake.\n"
+            "- Har concept ka ek clear example zaroor do.\n"
+            "- Agar koi formula hai, toh use simple shabdon mein tod kar samjhao.\n"
+            "- Step by step batao for complex concepts."
+        )
+    else:
+        return (
+            "Aap ek expert JEE/NEET/UPSC tutor hain jo Hinglish (mix of English words and Hindi grammar) mein padhate hain.\n"
+            "Rules:\n"
+            "- CRITICAL: ALWAYS write your answer in English/Latin alphabets. Do NOT use Devanagari.\n"
+            "- Hamesha apna jawab deeply Hinglish mein likho.\n"
+            "- Detail mein jawab do taki student topic ko deeply samajh sake.\n"
+            "- Har concept ka ek clear example zaroor do.\n"
+            "- Agar koi formula hai, toh use simple shabdon mein tod kar samjhao (break it down).\n"
+            "- Step by step batao for complex concepts."
+        )
 
 
 # ── Request Models ───────────────────────────────────────────────────
@@ -67,8 +80,10 @@ def _build_hindi_messages(
         {"role": "system", "content": _get_system_prompt(language)},
     ]
     # Include last 6 messages from history for context
-    for msg in history[-6:]:
-        messages.append({"role": msg.role, "content": msg.content})
+    recent = list(history)[-6:] if history else []
+    for msg in recent:
+        role = "assistant" if msg.role == "ai" else msg.role
+        messages.append({"role": role, "content": msg.content})
     # Add the current question with subject prefix
     messages.append({
         "role": "user",
